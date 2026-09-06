@@ -333,57 +333,65 @@ def render_time_picker(
     return hr_24, int(minute), f"{hour_12:02d}:{minute} {period}"
 
 
-def clean_and_trim_response(raw_text: str) -> str:
-    """Aggressively strips internal reasoning, planning blocks, and thought traces."""
+def clean_and_trim_response(raw_text: str, max_sentences: int = 3) -> str:
+    """Aggressively strips internal reasoning, planning blocks, bullet markers, and enforces a strict sentence limit."""
     if not raw_text:
         return "No response generated. Please try again."
 
     cleaned = raw_text.strip()
 
-    # Rule 1: Tag-First Extraction - If <advice>...</advice> exists, isolate that exact segment and ignore everything else.
+    # Step 1: Tag-First Extraction - If <advice>...</advice> exists, isolate that exact segment.
     advice_match = re.search(
         r"<advice>(.*?)</advice>", cleaned, re.DOTALL | re.IGNORECASE
     )
     if advice_match and advice_match.group(1).strip():
-        return advice_match.group(1).strip()
-
-    # Rule 2: Block Removal - If tags are absent, use targeted multiline regex to purge section blocks.
-    cleaned = re.sub(
-        r"<(think|thought|reasoning)>.*?</\1>",
-        "",
-        cleaned,
-        flags=re.DOTALL | re.IGNORECASE,
-    )
-
-    CoT_patterns = [
-        r"(?i)here'?s a thinking process:.*?(?=\n\n|\Z)",
-        r"(?i)analyze user input:.*?(?=\n\n|\Z)",
-        r"(?i)calculate sleep math:.*?(?=\n\n|\Z)",
-        r"(?i)formulate advice:.*?(?=\n\n|\Z)",
-        r"(?i)identify key constraints:.*?(?=\n\n|\Z)",
-        r"(?i)key points to hit:.*?(?=\n\n|\Z)",
-        r"(?i)mental refinement:.*?(?=\n\n|\Z)",
-        r"(?i)thinking process:.*?(?=\n\n|\Z)",
-    ]
-
-    for pattern in CoT_patterns:
-        cleaned = re.sub(pattern, "", cleaned, flags=re.DOTALL)
-
-    cleaned = re.sub(r"</?advice>", "", cleaned, flags=re.IGNORECASE)
-
-    # Rule 3: Line-by-Line Filtering - Filter out individual planner lines starting with key phrases.
-    lines = [
-        line
-        for line in cleaned.split("\n")
-        if not re.match(
-            r"^\s*(Current|Wake|Total available|Available Sleep|Goal|Role|Output Format|Must|No extra|Draft|Analysis|Sleep Goal|User Delay Reason):",
-            line,
-            re.IGNORECASE,
+        cleaned = advice_match.group(1).strip()
+    else:
+        # Step 2: Block & CoT Removal - Purge explicit reasoning/thinking blocks
+        cleaned = re.sub(
+            r"<(think|thought|reasoning)>.*?</\1>",
+            "",
+            cleaned,
+            flags=re.DOTALL | re.IGNORECASE,
         )
-    ]
 
-    result = "\n".join(lines).strip()
-    return result if result else raw_text.strip()
+        CoT_patterns = [
+            r"(?i)here'?s a thinking process:.*?(?=\n\n|\Z)",
+            r"(?i)analyze user input:.*?(?=\n\n|\Z)",
+            r"(?i)calculate sleep math:.*?(?=\n\n|\Z)",
+            r"(?i)formulate advice:.*?(?=\n\n|\Z)",
+            r"(?i)identify key constraints:.*?(?=\n\n|\Z)",
+            r"(?i)key points to hit:.*?(?=\n\n|\Z)",
+            r"(?i)mental refinement:.*?(?=\n\n|\Z)",
+            r"(?i)thinking process:.*?(?=\n\n|\Z)",
+        ]
+
+        for pattern in CoT_patterns:
+            cleaned = re.sub(pattern, "", cleaned, flags=re.DOTALL)
+
+        cleaned = re.sub(r"</?advice>", "", cleaned, flags=re.IGNORECASE)
+
+        # Line-by-Line Filtering for planner lines
+        lines = [
+            line
+            for line in cleaned.split("\n")
+            if not re.match(
+                r"^\s*(Current|Wake|Total available|Available Sleep|Goal|Role|Output Format|Must|No extra|Draft|Analysis|Sleep Goal|User Delay Reason):",
+                line,
+                re.IGNORECASE,
+            )
+        ]
+        cleaned = "\n".join(lines).strip()
+
+    # Step 3: Strip leading bullet points or numbered list markers
+    cleaned = re.sub(r"^\s*[\*\-\•\d\.]+\s*", "", cleaned).strip()
+
+    # Step 4: Truncate strictly to the designated maximum sentence limit
+    sentences = re.split(r"(?<=[.!?])\s+", cleaned)
+    if len(sentences) > max_sentences:
+        return " ".join(sentences[:max_sentences])
+
+    return cleaned if cleaned else raw_text.strip()
 
 
 # ==============================================================================
@@ -554,7 +562,7 @@ Provide concise, personalized advice directly addressing their metrics and conte
                         ]
 
                         final_response = clean_and_trim_response(
-                            raw_ai_response
+                            raw_ai_response, max_sentences=3
                         )
 
                         st.success("### AI Coach Guidance")
@@ -712,7 +720,7 @@ Provide concise advice directly addressing their rationale. Output ONLY the resp
                         ]
 
                         final_response = clean_and_trim_response(
-                            raw_ai_response
+                            raw_ai_response, max_sentences=3
                         )
 
                         st.success("### AI Coach Guidance")
