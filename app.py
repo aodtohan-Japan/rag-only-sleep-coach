@@ -498,7 +498,7 @@ if "Mode 1" in mode:
         "SUBMIT RESPONSE to Generate Personalized Feedback", key="submit_mode_1"
     ):
         if not user_query.strip():
-            st.error("⚠️ **Input Required:** Please type a question.")
+            st.error("⚠️ **Input Required:** Please type a question or share a brief reflection.")
         else:
             t_bed = datetime(2026, 1, 1, bed_hr, bed_min)
             t_wake = datetime(2026, 1, 1, wake_hr, wake_min)
