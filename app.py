@@ -334,21 +334,29 @@ def render_time_picker(
 
 
 def clean_and_trim_response(raw_text: str) -> str:
-    """Robust extraction logic that prevents output loss."""
+    """Robust extraction logic that prevents output loss and strips thinking process."""
     if not raw_text:
         return "No response generated. Please try again."
 
-    # Step 1: Strip out potential thought/reasoning blocks
+    # Step 1: Strip out potential thought/reasoning HTML-style blocks
     cleaned = re.sub(
         r"<(think|reasoning|thought)>.*?</\1>", "", raw_text, flags=re.DOTALL | re.IGNORECASE
     ).strip()
 
-    # Step 2: Extract content from <advice> tags if available
+    # Step 2: Strip out "Here's a thinking process:" text blocks or preamble reasoning before <advice>
+    cleaned = re.sub(
+        r"^(Here'?s a thinking process:?|Analyze User Input:?|Thinking Process:?).*?(?=<advice>|$)",
+        "",
+        cleaned,
+        flags=re.DOTALL | re.IGNORECASE
+    ).strip()
+
+    # Step 3: Extract content from <advice> tags if available
     match = re.search(r"<advice>(.*?)</advice>", cleaned, re.DOTALL | re.IGNORECASE)
     if match and match.group(1).strip():
         cleaned = match.group(1).strip()
     else:
-        # Step 3: Remove opening/closing tags if incomplete or trailing
+        # Remove opening/closing tags if incomplete or trailing
         cleaned = re.sub(r"</?advice>", "", cleaned, flags=re.IGNORECASE).strip()
 
     # Step 4: Remove standard LLM preamble phrases
@@ -489,6 +497,7 @@ if "Mode 1" in mode:
                     system_prompt = (
                         "You are an evidence-based sleep coach. Provide clear, empathetic, direct actionable "
                         "guidance in 2 to 3 sentences based on the user's data and context. "
+                        "Do NOT include any thinking process, reasoning, or meta-commentary in your output. "
                         "IMPORTANT: Always wrap your final user-facing response strictly inside <advice></advice> tags."
                     )
 
@@ -503,7 +512,7 @@ SCIENTIFIC CONTEXT:
 USER REFLECTION:
 {user_query}
 
-Provide concise, personalized advice directly addressing their metrics and context. Enclose your output strictly inside <advice>...</advice> tags.
+Provide concise, personalized advice directly addressing their metrics and context. Output ONLY the response enclosed inside <advice>...</advice> tags without any explanation or thought process.
 """
 
                     try:
@@ -644,6 +653,7 @@ else:
                     system_prompt = (
                         "You are an accountability sleep coach helping with bedtime procrastination. "
                         "Provide direct, persuasive advice in 2 to 3 sentences contrasting remaining sleep time against their goal. "
+                        "Do NOT include any thinking process, reasoning, or meta-commentary in your output. "
                         "IMPORTANT: Always wrap output strictly inside <advice></advice> tags."
                     )
 
@@ -660,7 +670,7 @@ SCIENTIFIC CONTEXT:
 USER DELAY REASON:
 {user_query}
 
-Provide concise advice directly addressing their rationale. Wrap output strictly inside <advice>...</advice> tags.
+Provide concise advice directly addressing their rationale. Output ONLY the response enclosed inside <advice>...</advice> tags without any explanation or thought process.
 """
 
                     try:
