@@ -253,57 +253,12 @@ except Exception as e:
 # ==============================================================================
 def search_raw_text_chunks(query, chunks, top_k=3):
     stopwords = {
-        "i",
-        "me",
-        "my",
-        "myself",
-        "we",
-        "our",
-        "you",
-        "your",
-        "he",
-        "she",
-        "it",
-        "what",
-        "which",
-        "who",
-        "whom",
-        "this",
-        "that",
-        "am",
-        "is",
-        "are",
-        "was",
-        "were",
-        "be",
-        "been",
-        "being",
-        "have",
-        "has",
-        "had",
-        "do",
-        "does",
-        "did",
-        "a",
-        "an",
-        "the",
-        "and",
-        "but",
-        "if",
-        "or",
-        "because",
-        "as",
-        "until",
-        "while",
-        "of",
-        "at",
-        "by",
-        "for",
-        "with",
-        "about",
-        "against",
-        "to",
-        "then",
+        "i", "me", "my", "myself", "we", "our", "you", "your", "he", "she",
+        "it", "what", "which", "who", "whom", "this", "that", "am", "is", "are",
+        "was", "were", "be", "been", "being", "have", "has", "had", "do", "does",
+        "did", "a", "an", "the", "and", "but", "if", "or", "because", "as",
+        "until", "while", "of", "at", "by", "for", "with", "about", "against",
+        "to", "then",
     }
 
     query_tokens = [
@@ -357,8 +312,8 @@ def render_time_picker(
     with col_hr:
         hour_12 = st.selectbox(
             "Hour",
-            list(range(0, 13)),
-            index=default_hour,
+            list(range(1, 13)),
+            index=(default_hour - 1) if 1 <= default_hour <= 12 else 9,
             key=f"{label_prefix}_hour",
         )
     with col_min:
@@ -369,36 +324,44 @@ def render_time_picker(
             key=f"{label_prefix}_minute",
         )
 
-    hr_24 = hour_12 % 12
-    if period == "PM":
-        hr_24 += 12
+    # Correct 12-hour to 24-hour conversion logic
+    if period == "AM":
+        hr_24 = 0 if hour_12 == 12 else hour_12
+    else:
+        hr_24 = 12 if hour_12 == 12 else hour_12 + 12
 
     return hr_24, int(minute), f"{hour_12:02d}:{minute} {period}"
 
 
 def clean_and_trim_response(raw_text: str) -> str:
     """Robust extraction logic that prevents output loss."""
-    # Step 1: Remove common reasoning block patterns if present
+    if not raw_text:
+        return "No response generated. Please try again."
+
+    # Step 1: Strip out potential thought/reasoning blocks
     cleaned = re.sub(
-        r"<think>.*?</think>", "", raw_text, flags=re.DOTALL
+        r"<(think|reasoning|thought)>.*?</\1>", "", raw_text, flags=re.DOTALL | re.IGNORECASE
     ).strip()
 
-    # Step 2: Extract contents of <advice> if present
-    match = re.search(r"<advice>(.*?)</advice>", cleaned, re.DOTALL)
+    # Step 2: Extract content from <advice> tags if available
+    match = re.search(r"<advice>(.*?)</advice>", cleaned, re.DOTALL | re.IGNORECASE)
     if match and match.group(1).strip():
-        return match.group(1).strip()
+        cleaned = match.group(1).strip()
+    else:
+        # Step 3: Remove opening/closing tags if incomplete or trailing
+        cleaned = re.sub(r"</?advice>", "", cleaned, flags=re.IGNORECASE).strip()
 
-    # Step 3: Remove potential conversational preambles
-    for preamble in [
-        "Draft 1:",
-        "Here's a response:",
-        "Here is the advice:",
-        "Advice:",
-    ]:
-        if preamble in cleaned:
-            cleaned = cleaned.split(preamble)[-1].strip()
+    # Step 4: Remove standard LLM preamble phrases
+    preambles = [
+        r"^Draft \d+:\s*",
+        r"^Here'?s a response:\s*",
+        r"^Here is the advice:\s*",
+        r"^Advice:\s*",
+        r"^AI Coach Guidance:\s*",
+    ]
+    for pattern in preambles:
+        cleaned = re.sub(pattern, "", cleaned, flags=re.IGNORECASE).strip()
 
-    # Step 4: Ensure text isn't empty after cleanup
     return cleaned if cleaned else raw_text.strip()
 
 
@@ -523,7 +486,11 @@ if "Mode 1" in mode:
                         [f"Source ({m[2]}): {m[1]}" for m in top_matches]
                     )
 
-                    system_prompt = "You are a concise, evidence-based sleep coach. Provide clear, empathetic guidance in 2 to 3 sentences based on the user's data and context. Enclose your advice inside <advice></advice> tags."
+                    system_prompt = (
+                        "You are an evidence-based sleep coach. Provide clear, empathetic, direct actionable "
+                        "guidance in 2 to 3 sentences based on the user's data and context. "
+                        "IMPORTANT: Always wrap your final user-facing response strictly inside <advice></advice> tags."
+                    )
 
                     user_prompt = f"""
 USER METRICS:
@@ -536,7 +503,7 @@ SCIENTIFIC CONTEXT:
 USER REFLECTION:
 {user_query}
 
-Provide concise, personalized advice directly addressing their metrics and context within <advice> tags.
+Provide concise, personalized advice directly addressing their metrics and context. Enclose your output strictly inside <advice>...</advice> tags.
 """
 
                     try:
@@ -552,7 +519,7 @@ Provide concise, personalized advice directly addressing their metrics and conte
                                 {"role": "user", "content": user_prompt},
                             ],
                             "temperature": 0.2,
-                            "max_tokens": 300,
+                            "max_tokens": 400,
                         }
 
                         response = requests.post(
@@ -674,7 +641,11 @@ else:
                         [f"Source ({m[2]}): {m[1]}" for m in top_matches]
                     )
 
-                    system_prompt = "You are an accountability sleep coach helping with bedtime procrastination. Provide direct, persuasive advice in 2 to 3 sentences contrasting remaining sleep time against their goal. Wrap output in <advice></advice> tags."
+                    system_prompt = (
+                        "You are an accountability sleep coach helping with bedtime procrastination. "
+                        "Provide direct, persuasive advice in 2 to 3 sentences contrasting remaining sleep time against their goal. "
+                        "IMPORTANT: Always wrap output strictly inside <advice></advice> tags."
+                    )
 
                     user_prompt = f"""
 USER METRICS:
@@ -689,7 +660,7 @@ SCIENTIFIC CONTEXT:
 USER DELAY REASON:
 {user_query}
 
-Provide concise advice inside <advice> tags addressing their rationale directly.
+Provide concise advice directly addressing their rationale. Wrap output strictly inside <advice>...</advice> tags.
 """
 
                     try:
@@ -705,7 +676,7 @@ Provide concise advice inside <advice> tags addressing their rationale directly.
                                 {"role": "user", "content": user_prompt},
                             ],
                             "temperature": 0.2,
-                            "max_tokens": 300,
+                            "max_tokens": 400,
                         }
 
                         response = requests.post(
