@@ -347,8 +347,10 @@ def clean_and_trim_response(raw_text: str, max_sentences: int = 3) -> str:
     if advice_match and advice_match.group(1).strip():
         cleaned = advice_match.group(1).strip()
 
-    # Step 2: Scrub system prompt leakage and common CoT headers
+    # Step 2: Scrub comprehensive prompt leakage and common CoT headers
     prompt_leak_patterns = [
+        r"code outut still says:.*",
+        r"Do not output planning.*",
         r"No internal analysis.*?(?=\n\n|\n[A-Z]|\Z)",
         r"Only advice inside.*?(?=\n\n|\n[A-Z]|\Z)",
         r"Identify the Core Conflict:.*",
@@ -375,7 +377,7 @@ def clean_and_trim_response(raw_text: str, max_sentences: int = 3) -> str:
 
         # Skip metadata lines, key-value pairs, or prompt fragments
         if re.match(
-            r"^\s*(?:tags\.?|Determine|Identify|Current Time|Target Wake|Available Sleep|Sleep Goal|User Delay Reason|Constraints|Scientific Context|User is awake|Needs to wake|It's \d+ [AP]M|User has work|Available:|Goal:):",
+            r"^\s*(?:tags\.?|Determine|Identify|Do not|Current Time|Target Wake|Available Sleep|Sleep Goal|User Delay Reason|Constraints|Scientific Context|User is awake|Needs to wake|It's \d+ [AP]M|User has work|Available:|Goal:):",
             line_str,
             re.IGNORECASE,
         ):
@@ -383,7 +385,7 @@ def clean_and_trim_response(raw_text: str, max_sentences: int = 3) -> str:
 
         # Skip bullet points that echo user facts instead of providing advice
         if re.match(
-            r"^\s*[\-\*•]\s*(?:It's \d+|Available:|User|Goal:|Target)",
+            r"^\s*[\-\*•]\s*(?:It's \d+|Available:|User|Goal:|Target|Do not|Output)",
             line_str,
             re.IGNORECASE,
         ):
@@ -402,7 +404,7 @@ def clean_and_trim_response(raw_text: str, max_sentences: int = 3) -> str:
     if conversational_match:
         cleaned = conversational_match.group(0).strip()
 
-    # Step 6: Limit sentence count
+    # Step 6: Limit sentence count and eliminate leak fragments
     sentences = re.split(r"(?<=[.!?])\s+", cleaned)
     valid_sentences = [
         s.strip()
@@ -410,7 +412,13 @@ def clean_and_trim_response(raw_text: str, max_sentences: int = 3) -> str:
         if len(s.strip().split()) > 3
         and not any(
             kw in s.lower()
-            for kw in ["determine", "identify", "core conflict", "no internal analysis"]
+            for kw in [
+                "determine",
+                "identify",
+                "core conflict",
+                "no internal analysis",
+                "do not output",
+            ]
         )
     ]
 
@@ -544,9 +552,7 @@ if "Mode 1" in mode:
                     )
 
                     system_prompt = (
-                        "You are an evidence-based sleep coach. Provide direct, helpful sleep guidance "
-                        "in 2 to 3 sentences. Output only your direct response inside <advice> tags. "
-                        "Do not output planning, steps, or restatements."
+                        "You are an evidence-based sleep coach. Respond with direct sleep advice wrapped inside <advice> tags."
                     )
 
                     user_prompt = f"""
@@ -560,7 +566,7 @@ SCIENTIFIC CONTEXT:
 USER REFLECTION:
 {user_query}
 
-Respond directly to the user inside <advice> tags.
+Provide concise sleep guidance to the user. Wrap the response inside <advice> tags.
 """
 
                     try:
@@ -581,6 +587,7 @@ Respond directly to the user inside <advice> tags.
                                 "Determine the Core",
                                 "Identify the Core",
                                 "No internal analysis",
+                                "Do not output",
                                 "</advice>",
                             ],
                         }
@@ -707,9 +714,7 @@ else:
                     )
 
                     system_prompt = (
-                        "You are an evidence-based sleep coach. Provide direct, helpful sleep guidance "
-                        "in 2 to 3 sentences. Output only your direct response inside <advice> tags. "
-                        "Do not output planning, steps, or restatements."
+                        "You are an evidence-based sleep coach. Respond with direct sleep advice wrapped inside <advice> tags."
                     )
 
                     user_prompt = f"""
@@ -725,7 +730,7 @@ SCIENTIFIC CONTEXT:
 USER DELAY REASON:
 {user_query}
 
-Respond directly to the user inside <advice> tags.
+Provide concise sleep guidance to the user. Wrap the response inside <advice> tags.
 """
 
                     try:
@@ -746,6 +751,7 @@ Respond directly to the user inside <advice> tags.
                                 "Determine the Core",
                                 "Identify the Core",
                                 "No internal analysis",
+                                "Do not output",
                                 "</advice>",
                             ],
                         }
