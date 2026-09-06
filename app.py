@@ -489,13 +489,16 @@ if "Mode 1" in mode:
                     system_prompt = (
                         "You are an evidence-based sleep coach. Provide clear, empathetic, direct actionable "
                         "guidance in 2 to 3 sentences based on the user's data and context. "
-                        "IMPORTANT: Always wrap your final user-facing response strictly inside <advice></advice> tags."
                     )
 
                     user_prompt = f"""
+CRITICAL INSTRUCTION: Output ONLY your final advice in 1 to 3 sentences maximum. Do NOT include any thinking process, reasoning steps, or intros like "Here's a thinking process:".
+
 USER METRICS:
 - Total Sleep Duration: {sleep_duration:.1f} hours ({bedtime_display} to {wake_display})
 - Self-Reported Sleepiness Level: {user_self_alertness}/9
+
+Using the scientific context below, provide concise, personalized advice directly addressing their metrics and context. Write a supportive response in max 3 sentences.
 
 SCIENTIFIC CONTEXT:
 {context_str}
@@ -503,7 +506,6 @@ SCIENTIFIC CONTEXT:
 USER REFLECTION:
 {user_query}
 
-Provide concise, personalized advice directly addressing their metrics and context. Enclose your output strictly inside <advice>...</advice> tags. Do not display your thinking process. Produce a 3-sentence answer.
 """
 
                     try:
