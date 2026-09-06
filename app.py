@@ -295,7 +295,7 @@ def search_raw_text_chunks(query, chunks, top_k=3):
 
 
 # ==============================================================================
-# HELPER FUNCTIONS & LLM CALL
+# HELPER FUNCTIONS
 # ==============================================================================
 def render_time_picker(
     label_prefix, default_hour=10, default_minute=0, default_period="PM"
@@ -334,83 +334,35 @@ def render_time_picker(
 
 
 def clean_and_trim_response(raw_text: str) -> str:
-    """SOLUTION 4: Enhanced Response Cleaner
-
-    Strips thinking logs and validates that actual advice was returned.
-    """
+    """Robust extraction logic that prevents output loss."""
     if not raw_text:
-        return "<advice>\nPrioritize getting quality sleep tonight to align with your body's circadian rhythm.\n</advice>"
+        return "No response generated. Please try again."
 
-    cleaned = raw_text.strip()
-
-    # Strip thinking blocks
+    # Step 1: Strip out potential thought/reasoning blocks
     cleaned = re.sub(
-        r"<think>.*?</think>", "", cleaned, flags=re.DOTALL | re.IGNORECASE
-    )
-    cleaned = re.sub(
-        r"<thought>.*?</thought>", "", cleaned, flags=re.DOTALL | re.IGNORECASE
-    )
-    cleaned = re.sub(
-        r"Here's a thinking process:.*?(?=\n\n|\Z)",
-        "",
-        cleaned,
-        flags=re.DOTALL | re.IGNORECASE,
-    )
+        r"<(think|reasoning|thought)>.*?</\1>", "", raw_text, flags=re.DOTALL | re.IGNORECASE
+    ).strip()
 
-    # Extract text inside <advice> tags
-    advice_match = re.search(
-        r"<advice>(.*?)</advice>", cleaned, re.DOTALL | re.IGNORECASE
-    )
-    if advice_match and advice_match.group(1).strip():
-        content = advice_match.group(1).strip()
-        # Fallback if the extracted content itself is just thinking text
-        if "thinking process:" not in content.lower():
-            return f"<advice>\n{content}\n</advice>"
+    # Step 2: Extract content from <advice> tags if available
+    match = re.search(r"<advice>(.*?)</advice>", cleaned, re.DOTALL | re.IGNORECASE)
+    if match and match.group(1).strip():
+        cleaned = match.group(1).strip()
+    else:
+        # Step 3: Remove opening/closing tags if incomplete or trailing
+        cleaned = re.sub(r"</?advice>", "", cleaned, flags=re.IGNORECASE).strip()
 
-    # Fallback default response if output was truncated mid-thought
-    default_msg = (
-        "Focus on finishing your essential tasks quickly and aim for at least a full 90-minute sleep cycle "
-        "tonight to preserve memory consolidation and next-day presentation focus."
-    )
-    return f"<advice>\n{default_msg}\n</advice>"
-
-
-def query_openrouter_llm(system_prompt: str, user_prompt: str) -> str:
-    """Issues API request keeping requested free-tier models (Nemotron primary)."""
-    url = "https://openrouter.ai/api/v1/chat/completions"
-    headers = {
-        "Authorization": f"Bearer {openrouter_api_key}",
-        "Content-Type": "application/json",
-    }
-
-    candidate_models = [
-        "nvidia/nemotron-3.5-lightning:free",
-        "google/gemini-2.0-flash-lite-preview-02-05:free",
-        "qwen/qwen-2.5-72b-instruct:free",
+    # Step 4: Remove standard LLM preamble phrases
+    preambles = [
+        r"^Draft \d+:\s*",
+        r"^Here'?s a response:\s*",
+        r"^Here is the advice:\s*",
+        r"^Advice:\s*",
+        r"^AI Coach Guidance:\s*",
     ]
+    for pattern in preambles:
+        cleaned = re.sub(pattern, "", cleaned, flags=re.IGNORECASE).strip()
 
-    for model_name in candidate_models:
-        payload = {
-            "model": model_name,
-            "messages": [
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": user_prompt},
-            ],
-            "temperature": 0.2,
-            "max_tokens": 500,
-        }
-
-        try:
-            response = requests.post(url, headers=headers, json=payload, timeout=12)
-            if response.status_code == 200:
-                res_json = response.json()
-                content = res_json["choices"][0]["message"]["content"]
-                if content and len(content.strip()) > 10:
-                    return content
-        except Exception:
-            continue
-
-    raise RuntimeError("Unable to retrieve a response from AI model provider.")
+    return cleaned if cleaned else raw_text.strip()
 
 
 # ==============================================================================
@@ -509,9 +461,7 @@ if "Mode 1" in mode:
         "SUBMIT RESPONSE to Generate Personalized Feedback", key="submit_mode_1"
     ):
         if not user_query.strip():
-            st.error(
-                "⚠️ **Input Required:** Please type a question or reflection in the box above before submitting."
-            )
+            st.error("⚠️ **Input Required:**  Please type a question or reflection in the box above before submitting.")
         else:
             t_bed = datetime(2026, 1, 1, bed_hr, bed_min)
             t_wake = datetime(2026, 1, 1, wake_hr, wake_min)
@@ -536,38 +486,57 @@ if "Mode 1" in mode:
                         [f"Source ({m[2]}): {m[1]}" for m in top_matches]
                     )
 
-                    # SOLUTION 3: Add explicit System Instructions (Negative Constraint)
                     system_prompt = (
-                        "You are an evidence-based sleep coach. Speak directly to the user in a warm, concise, and professional tone. "
-                        "Provide clear, actionable guidance grounded in the retrieved scientific context. "
-                        "IMPORTANT: Do NOT output any internal thinking process, step-by-step reasoning, or preamble. "
-                        "Output ONLY the final advice strictly wrapped inside <advice> and </advice> tags."
+                        "You are an evidence-based sleep coach. Provide clear, empathetic, direct actionable "
+                        "guidance in 2 to 3 sentences based on the user's data and context. "
+                        "IMPORTANT: Always wrap your final user-facing response strictly inside <advice></advice> tags."
                     )
 
                     user_prompt = f"""
-[USER METRICS]
-Duration: {sleep_duration:.1f} hrs ({bedtime_display} - {wake_display})
-Self-Reported Sleepiness: {user_self_alertness}/9
+USER METRICS:
+- Total Sleep Duration: {sleep_duration:.1f} hours ({bedtime_display} to {wake_display})
+- Self-Reported Sleepiness Level: {user_self_alertness}/9
 
-[EVIDENCE CONTEXT]
+SCIENTIFIC CONTEXT:
 {context_str}
 
-[USER QUESTION / REFLECTION]
+USER REFLECTION:
 {user_query}
 
-Provide direct evidence-based sleep coaching wrapped strictly in <advice>...</advice> tags.
+Provide concise, personalized advice directly addressing their metrics and context. Enclose your output strictly inside <advice>...</advice> tags.
 """
 
                     try:
-                        raw_ai_response = query_openrouter_llm(
-                            system_prompt, user_prompt
+                        url = "https://openrouter.ai/api/v1/chat/completions"
+                        headers = {
+                            "Authorization": f"Bearer {openrouter_api_key}",
+                            "Content-Type": "application/json",
+                        }
+                        payload = {
+                            "model": "nvidia/nemotron-3.5-lightning:free",
+                            "messages": [
+                                {"role": "system", "content": system_prompt},
+                                {"role": "user", "content": user_prompt},
+                            ],
+                            "temperature": 0.2,
+                            "max_tokens": 400,
+                        }
+
+                        response = requests.post(
+                            url, headers=headers, json=payload, timeout=12
                         )
+                        response.raise_for_status()
+                        res_json = response.json()
+                        raw_ai_response = res_json["choices"][0]["message"][
+                            "content"
+                        ]
+
                         final_response = clean_and_trim_response(
                             raw_ai_response
                         )
 
                         st.success("### AI Coach Guidance")
-                        st.code(final_response, language="xml")
+                        st.write(final_response)
 
                         with st.expander("🔍 View Retrieved Knowledge Context"):
                             seen_sources = set()
@@ -648,9 +617,7 @@ else:
         "SUBMIT RESPONSE to Generate Personalized Feedback", key="submit_mode_2"
     ):
         if not user_query.strip():
-            st.error(
-                "⚠️ **Input Required:** Please type your rationale in the box above before submitting."
-            )
+            st.error("⚠️ **Input Required:** Please type your rationale in the box above before submitting.")
         else:
             t_now = datetime(2026, 1, 1, now_hr, now_min)
             t_wake = datetime(2026, 1, 1, target_hr, target_min)
@@ -674,40 +641,59 @@ else:
                         [f"Source ({m[2]}): {m[1]}" for m in top_matches]
                     )
 
-                    # SOLUTION 3: Add explicit System Instructions (Negative Constraint)
                     system_prompt = (
-                        "You are an evidence-based sleep coach. Speak directly to the user in a warm, concise, and professional tone. "
-                        "Provide clear, actionable guidance grounded in the retrieved scientific context. "
-                        "IMPORTANT: Do NOT output any internal thinking process, step-by-step reasoning, or preamble. "
-                        "Output ONLY the final advice strictly wrapped inside <advice> and </advice> tags."
+                        "You are an accountability sleep coach helping with bedtime procrastination. "
+                        "Provide direct, persuasive advice in 2 to 3 sentences contrasting remaining sleep time against their goal. "
+                        "IMPORTANT: Always wrap output strictly inside <advice></advice> tags."
                     )
 
                     user_prompt = f"""
-[USER METRICS]
-Current Time: {now_display}
-Target Wake Time: {target_display}
-Max Available Sleep: {available_sleep:.1f} hrs
-Goal Sleep Duration: {aim_sleep:.1f} hrs
+USER METRICS:
+- Current Time: {now_display}
+- Target Wake Time: {target_display}
+- Available Sleep: {available_sleep:.1f} hours
+- Sleep Goal: {aim_sleep:.1f} hours
 
-[EVIDENCE CONTEXT]
+SCIENTIFIC CONTEXT:
 {context_str}
 
-[USER DELAY REASON]
+USER DELAY REASON:
 {user_query}
 
-Provide direct evidence-based sleep coaching wrapped strictly in <advice>...</advice> tags.
+Provide concise advice directly addressing their rationale. Wrap output strictly inside <advice>...</advice> tags.
 """
 
                     try:
-                        raw_ai_response = query_openrouter_llm(
-                            system_prompt, user_prompt
+                        url = "https://openrouter.ai/api/v1/chat/completions"
+                        headers = {
+                            "Authorization": f"Bearer {openrouter_api_key}",
+                            "Content-Type": "application/json",
+                        }
+                        payload = {
+                            "model": "nvidia/nemotron-3.5-lightning:free",
+                            "messages": [
+                                {"role": "system", "content": system_prompt},
+                                {"role": "user", "content": user_prompt},
+                            ],
+                            "temperature": 0.2,
+                            "max_tokens": 400,
+                        }
+
+                        response = requests.post(
+                            url, headers=headers, json=payload, timeout=12
                         )
+                        response.raise_for_status()
+                        res_json = response.json()
+                        raw_ai_response = res_json["choices"][0]["message"][
+                            "content"
+                        ]
+
                         final_response = clean_and_trim_response(
                             raw_ai_response
                         )
 
                         st.success("### AI Coach Guidance")
-                        st.code(final_response, language="xml")
+                        st.write(final_response)
 
                         with st.expander("🔍 View Retrieved Knowledge Context"):
                             seen_sources = set()
