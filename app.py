@@ -4,6 +4,7 @@ import pandas as pd
 import numpy as np
 import requests
 import re
+import os
 from collections import Counter
 from datetime import datetime, timedelta
 
@@ -127,8 +128,8 @@ st.markdown(f"""
 
     /* Custom Prominent Dark Blue Button Styling */
     div.stButton > button {{
-        background-color: #1e40af !important; /* Deep Royal Blue */
-        color: #ffffff !important;            /* High Contrast White Text */
+        background-color: #1e40af !important;
+        color: #ffffff !important;
         font-weight: 800 !important;
         font-size: 18px !important;
         border-radius: 12px !important;
@@ -140,7 +141,7 @@ st.markdown(f"""
 
     /* Hover effect for submit buttons */
     div.stButton > button:hover {{
-        background-color: #1d4ed8 !important; /* Slightly lighter blue on hover */
+        background-color: #1d4ed8 !important;
         color: #ffffff !important;
         box-shadow: 0px 6px 14px rgba(0, 0, 0, 0.25) !important;
         transform: translateY(-1px);
@@ -157,11 +158,18 @@ else:
     st.sidebar.success("🔒 API Key loaded securely from Secrets!")
 
 # ==============================================================================
-# LOAD RAG KNOWLEDGE BASE (.pkl file)
+# LOAD RAG KNOWLEDGE BASE (.pkl file with robust path resolution)
 # ==============================================================================
 @st.cache_resource
 def load_rag_artifact():
-    with open('lightweight_rag_components.pkl', 'rb') as f:
+    # Resolve the directory relative to this app.py file
+    base_dir = os.path.dirname(os.path.abspath(__file__))
+    file_path = os.path.join(base_dir, "lightweight_rag_components.pkl")
+    
+    if not os.path.exists(file_path):
+        raise FileNotFoundError(f"File not found at target path: {file_path}")
+        
+    with open(file_path, 'rb') as f:
         rag_payload = pickle.load(f)
     return rag_payload
 
@@ -174,9 +182,17 @@ try:
         rag_chunks = rag_payload
 
     st.sidebar.success("✅ RAG Knowledge Base Loaded!")
+except FileNotFoundError as fnf_err:
+    st.sidebar.error("❌ File Missing")
+    st.error(f"**FileNotFound Error:** {fnf_err}")
+    st.stop()
 except Exception as e:
-    st.sidebar.error(f"Error loading RAG file: {e}")
-    st.error("Please ensure `lightweight_rag_components.pkl` is in your repository root folder.")
+    st.sidebar.error("❌ Pickling Error")
+    st.error(
+        f"**Error loading RAG file (`{e}`):**\n\n"
+        "This usually happens when GitHub uploads the `.pkl` file as a plain text pointer. "
+        "Please ensure `lightweight_rag_components.pkl` is uploaded directly as a raw binary file to your repository root."
+    )
     st.stop()
 
 # ==============================================================================
