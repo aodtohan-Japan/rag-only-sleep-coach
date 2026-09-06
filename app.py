@@ -334,20 +334,20 @@ def render_time_picker(
 
 
 def clean_and_trim_response(raw_text: str, max_sentences: int = 3) -> str:
-    """Robustly isolates advice blocks and purges truncated CoT/reasoning prefix traces."""
+    """Isolates core advice text, purges CoT artifacts and echoed prompt directives."""
     if not raw_text:
         return "No response generated. Please try again."
 
     cleaned = raw_text.strip()
 
-    # Priority 1: Match content enclosed in <advice> tags (handles non-closed tags gracefully)
+    # Priority 1: Match content enclosed in <advice> tags (handles unclosed tags gracefully)
     advice_match = re.search(
         r"<advice>(.*?)(?:</advice>|\Z)", cleaned, re.DOTALL | re.IGNORECASE
     )
     if advice_match and advice_match.group(1).strip():
         cleaned = advice_match.group(1).strip()
     else:
-        # Priority 2: If model omitted tags, strip CoT header prefixes greedily
+        # Priority 2: Strip greedy CoT header prefixes
         cot_prefixes = [
             r"(?i)^.*?Here'?s a thinking process:?\s*",
             r"(?i)^.*?Analyze User Input:?\s*",
@@ -378,10 +378,19 @@ def clean_and_trim_response(raw_text: str, max_sentences: int = 3) -> str:
         ]
         cleaned = "\n".join(lines).strip()
 
-    # Priority 3: Clean list markers / bullet points
+    # Priority 3: Remove echoed instruction phrases
+    prompt_echos = [
+        r"(?i)^and end with\s*",
+        r"(?i)^start your output immediately with\s*",
+        r"(?i)^output only the response\s*",
+    ]
+    for echo in prompt_echos:
+        cleaned = re.sub(echo, "", cleaned).strip()
+
+    # Priority 4: Clean list markers / bullet points
     cleaned = re.sub(r"^\s*[\*\-\•\d\.]+\s*", "", cleaned).strip()
 
-    # Priority 4: Enforce strict sentence cap
+    # Priority 5: Enforce strict sentence cap
     sentences = re.split(r"(?<=[.!?])\s+", cleaned)
     if len(sentences) > max_sentences:
         return " ".join(sentences[:max_sentences])
@@ -511,9 +520,8 @@ if "Mode 1" in mode:
                     )
 
                     system_prompt = (
-                        "You are an evidence-based sleep coach. Provide direct, persuasive advice in 2 to 3 sentences. "
-                        "Do NOT include any reasoning, planning, or scratchpad notes. "
-                        "CRITICAL: Start your output IMMEDIATELY with <advice> and end with </advice>."
+                        "You are an evidence-based sleep coach. Provide actionable, supportive sleep advice in 2 to 3 sentences. "
+                        "Do not include meta-commentary or reasoning."
                     )
 
                     user_prompt = f"""
@@ -527,7 +535,7 @@ SCIENTIFIC CONTEXT:
 USER REFLECTION:
 {user_query}
 
-Provide concise, personalized advice directly addressing their metrics and context. Start your output IMMEDIATELY with <advice> and end with </advice>.
+Output your advice inside <advice> tags. Example: <advice>Your text here.</advice>
 """
 
                     try:
@@ -667,8 +675,7 @@ else:
 
                     system_prompt = (
                         "You are an evidence-based sleep coach. Provide direct, persuasive advice in 2 to 3 sentences. "
-                        "Do NOT include any reasoning, planning, or scratchpad notes. "
-                        "CRITICAL: Start your output IMMEDIATELY with <advice> and end with </advice>."
+                        "Do not include meta-commentary or reasoning."
                     )
 
                     user_prompt = f"""
@@ -684,7 +691,7 @@ SCIENTIFIC CONTEXT:
 USER DELAY REASON:
 {user_query}
 
-Provide concise advice directly addressing their rationale contrasting remaining sleep time against their goal. Start your output IMMEDIATELY with <advice> and end with </advice>.
+Output your advice inside <advice> tags. Example: <advice>Your text here.</advice>
 """
 
                     try:
