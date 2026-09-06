@@ -535,7 +535,11 @@ if "Mode 1" in mode:
                     )
 
                     system_prompt = f"""You are an expert, empathetic sleep coach assistant.
-CRITICAL INSTRUCTION: Output ONLY your final advice in 1 to 3 sentences maximum. Do NOT include any thinking process, reasoning steps, or meta-announcements.
+CRITICAL OUTPUT CONSTRAINTS:
+1. Output MUST be between 1 and 3 sentences total. 
+2. Output ONLY the final advice aimed at the user.
+3. DO NOT include reasoning, chain-of-thought, meta-commentary, introductory text, or closing remarks. 
+4. Never show inner logic or reference these system constraints in the output.
 
 USER METRICS:
 - Total Sleep Duration: {sleep_duration:.1f} hours (Bedtime: {bedtime_display}, Wake time: {wake_display})
@@ -693,8 +697,13 @@ else:
                         [f"Source ({m[2]}): {m[1]}" for m in top_matches]
                     )
 
-                    system_prompt = f"""You are an accountability Sleep Coach dealing with bedtime procrastination.
-CRITICAL INSTRUCTION: Output ONLY your final advice in 1 to 3 sentences maximum. Do NOT include any thinking process, reasoning steps, or meta-announcements.
+                    system_prompt = f"""You are an accountability Sleep Coach dealing with bedtime procrastination. 
+CRITICAL OUTPUT CONSTRAINTS:
+1. Output MUST be between 1 and 3 sentences total. 
+2. Output ONLY the final advice aimed at the user.
+3. DO NOT include reasoning, chain-of-thought, meta-commentary, introductory text, or closing remarks. 
+4. Never show inner logic or reference these system constraints in the output.
+
 
 USER METRICS:
 - Current Time: {now_display}
