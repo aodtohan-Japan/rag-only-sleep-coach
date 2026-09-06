@@ -334,43 +334,56 @@ def render_time_picker(
 
 
 def clean_and_trim_response(raw_text: str) -> str:
-    """Robust extraction logic that prevents output loss and strips thinking process."""
+    """Aggressively strips internal reasoning, planning blocks, and thought traces."""
     if not raw_text:
         return "No response generated. Please try again."
 
-    # Step 1: Strip out potential thought/reasoning HTML-style blocks
-    cleaned = re.sub(
-        r"<(think|reasoning|thought)>.*?</\1>", "", raw_text, flags=re.DOTALL | re.IGNORECASE
-    ).strip()
+    cleaned = raw_text.strip()
 
-    # Step 2: Strip out "Here's a thinking process:" text blocks or preamble reasoning before <advice>
+    # Rule 1: Tag-First Extraction - If <advice>...</advice> exists, isolate that exact segment and ignore everything else.
+    advice_match = re.search(
+        r"<advice>(.*?)</advice>", cleaned, re.DOTALL | re.IGNORECASE
+    )
+    if advice_match and advice_match.group(1).strip():
+        return advice_match.group(1).strip()
+
+    # Rule 2: Block Removal - If tags are absent, use targeted multiline regex to purge section blocks.
     cleaned = re.sub(
-        r"^(Here'?s a thinking process:?|Analyze User Input:?|Thinking Process:?).*?(?=<advice>|$)",
+        r"<(think|thought|reasoning)>.*?</\1>",
         "",
         cleaned,
-        flags=re.DOTALL | re.IGNORECASE
-    ).strip()
+        flags=re.DOTALL | re.IGNORECASE,
+    )
 
-    # Step 3: Extract content from <advice> tags if available
-    match = re.search(r"<advice>(.*?)</advice>", cleaned, re.DOTALL | re.IGNORECASE)
-    if match and match.group(1).strip():
-        cleaned = match.group(1).strip()
-    else:
-        # Remove opening/closing tags if incomplete or trailing
-        cleaned = re.sub(r"</?advice>", "", cleaned, flags=re.IGNORECASE).strip()
-
-    # Step 4: Remove standard LLM preamble phrases
-    preambles = [
-        r"^Draft \d+:\s*",
-        r"^Here'?s a response:\s*",
-        r"^Here is the advice:\s*",
-        r"^Advice:\s*",
-        r"^AI Coach Guidance:\s*",
+    CoT_patterns = [
+        r"(?i)here'?s a thinking process:.*?(?=\n\n|\Z)",
+        r"(?i)analyze user input:.*?(?=\n\n|\Z)",
+        r"(?i)calculate sleep math:.*?(?=\n\n|\Z)",
+        r"(?i)formulate advice:.*?(?=\n\n|\Z)",
+        r"(?i)identify key constraints:.*?(?=\n\n|\Z)",
+        r"(?i)key points to hit:.*?(?=\n\n|\Z)",
+        r"(?i)mental refinement:.*?(?=\n\n|\Z)",
+        r"(?i)thinking process:.*?(?=\n\n|\Z)",
     ]
-    for pattern in preambles:
-        cleaned = re.sub(pattern, "", cleaned, flags=re.IGNORECASE).strip()
 
-    return cleaned if cleaned else raw_text.strip()
+    for pattern in CoT_patterns:
+        cleaned = re.sub(pattern, "", cleaned, flags=re.DOTALL)
+
+    cleaned = re.sub(r"</?advice>", "", cleaned, flags=re.IGNORECASE)
+
+    # Rule 3: Line-by-Line Filtering - Filter out individual planner lines starting with key phrases.
+    lines = [
+        line
+        for line in cleaned.split("\n")
+        if not re.match(
+            r"^\s*(Current|Wake|Total available|Available Sleep|Goal|Role|Output Format|Must|No extra|Draft|Analysis|Sleep Goal|User Delay Reason):",
+            line,
+            re.IGNORECASE,
+        )
+    ]
+
+    result = "\n".join(lines).strip()
+    return result if result else raw_text.strip()
 
 
 # ==============================================================================
@@ -469,7 +482,7 @@ if "Mode 1" in mode:
         "SUBMIT RESPONSE to Generate Personalized Feedback", key="submit_mode_1"
     ):
         if not user_query.strip():
-            st.error("⚠️ **Input Required:**  Please type a question or reflection in the box above before submitting.")
+            st.error("⚠️ **Input Required:** Please type a question or reflection in the box above before submitting.")
         else:
             t_bed = datetime(2026, 1, 1, bed_hr, bed_min)
             t_wake = datetime(2026, 1, 1, wake_hr, wake_min)
@@ -497,7 +510,7 @@ if "Mode 1" in mode:
                     system_prompt = (
                         "You are an evidence-based sleep coach. Provide clear, empathetic, direct actionable "
                         "guidance in 2 to 3 sentences based on the user's data and context. "
-                        "Do NOT include any thinking process, reasoning, or meta-commentary in your output. "
+                        "Do NOT include any thinking process, reasoning, scratchpad notes, or meta-commentary in your output. "
                         "IMPORTANT: Always wrap your final user-facing response strictly inside <advice></advice> tags."
                     )
 
@@ -653,7 +666,7 @@ else:
                     system_prompt = (
                         "You are an accountability sleep coach helping with bedtime procrastination. "
                         "Provide direct, persuasive advice in 2 to 3 sentences contrasting remaining sleep time against their goal. "
-                        "Do NOT include any thinking process, reasoning, or meta-commentary in your output. "
+                        "Do NOT include any thinking process, internal reasoning, planning steps, or meta-commentary in your output. "
                         "IMPORTANT: Always wrap output strictly inside <advice></advice> tags."
                     )
 
