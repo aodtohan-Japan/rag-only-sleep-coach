@@ -334,72 +334,84 @@ def render_time_picker(
 
 
 def clean_and_trim_response(raw_text: str, max_sentences: int = 3) -> str:
-    """Isolates core advice text, purges CoT artifacts, planning headers, and metadata lines."""
+    """Scrubs CoT artifacts, regurgitated system prompts, and analytical headers."""
     if not raw_text:
         return "No response generated. Please try again."
 
     cleaned = raw_text.strip()
 
-    # Priority 1: Match content inside <advice> tags if present
+    # Step 1: Extract content inside <advice> tags if present
     advice_match = re.search(
         r"<advice>(.*?)(?:</advice>|\Z)", cleaned, re.DOTALL | re.IGNORECASE
     )
     if advice_match and advice_match.group(1).strip():
         cleaned = advice_match.group(1).strip()
-    else:
-        # Priority 2: Strip planning sections or header blocks
-        cleaned = re.sub(
-            r"(?i)^(?:Determine the Core Message|Analyze User Input|Evaluate Constraints|Scientific Context|Thinking Process|Thought Process):.*?(?=\n\n|\Z)",
-            "",
-            cleaned,
-            flags=re.DOTALL,
-        )
 
-        # Remove residual XML/HTML tags
-        cleaned = re.sub(
-            r"</?(?:advice|think|thought|reasoning)>",
-            "",
-            cleaned,
-            flags=re.IGNORECASE,
-        )
+    # Step 2: Scrub system prompt leakage and common CoT headers
+    prompt_leak_patterns = [
+        r"No internal analysis.*?(?=\n\n|\n[A-Z]|\Z)",
+        r"Only advice inside.*?(?=\n\n|\n[A-Z]|\Z)",
+        r"Identify the Core Conflict:.*",
+        r"Determine the Core Message:.*",
+        r"Analyze User Input:.*",
+        r"Evaluate Constraints:.*",
+        r"Thought Process:.*",
+        r"Reasoning:.*",
+    ]
+    for pattern in prompt_leak_patterns:
+        cleaned = re.sub(pattern, "", cleaned, flags=re.IGNORECASE | re.DOTALL)
 
-        # Line-by-line filtering of metadata lines, bullet lists of raw parameters, or prompt fragments
-        filtered_lines = []
-        for line in cleaned.split("\n"):
-            line_str = line.strip()
-            if not line_str:
-                continue
+    # Step 3: Strip XML/HTML tags
+    cleaned = re.sub(
+        r"</?(?:advice|think|thought|reasoning)>", "", cleaned, flags=re.IGNORECASE
+    )
 
-            # Skip lines matching key analytical patterns or prompt leaks
-            if re.match(
-                r"^\s*(?:tags\.?|Determine the Core Message|Current Time|Target Wake|Available Sleep|Sleep Goal|User Delay Reason|Constraints|Scientific Context|User is awake|Needs to wake|It's \d+ [AP]M|User has work|Available:):",
-                line_str,
-                re.IGNORECASE,
-            ):
-                continue
+    # Step 4: Line-by-line filtering of analytical metadata and parameter summaries
+    filtered_lines = []
+    for line in cleaned.split("\n"):
+        line_str = line.strip()
+        if not line_str:
+            continue
 
-            # Skip bullet points summarizing facts instead of coaching
-            if re.match(r"^\s*[\-\*•]\s*(?:It's \d+|Available:|User|Goal:)", line_str, re.IGNORECASE):
-                continue
+        # Skip metadata lines, key-value pairs, or prompt fragments
+        if re.match(
+            r"^\s*(?:tags\.?|Determine|Identify|Current Time|Target Wake|Available Sleep|Sleep Goal|User Delay Reason|Constraints|Scientific Context|User is awake|Needs to wake|It's \d+ [AP]M|User has work|Available:|Goal:):",
+            line_str,
+            re.IGNORECASE,
+        ):
+            continue
 
-            filtered_lines.append(line_str)
+        # Skip bullet points that echo user facts instead of providing advice
+        if re.match(
+            r"^\s*[\-\*•]\s*(?:It's \d+|Available:|User|Goal:|Target)",
+            line_str,
+            re.IGNORECASE,
+        ):
+            continue
 
-        cleaned = " ".join(filtered_lines).strip()
+        filtered_lines.append(line_str)
 
-    # Priority 3: Locate first actual conversational sentence addressed to the user
+    cleaned = " ".join(filtered_lines).strip()
+
+    # Step 5: Locate first actual conversational sentence addressed to the user
     conversational_match = re.search(
-        r"\b(?:You|While|Getting|Prioritizing|Sleep|To|If|Although|Since|It is|I understand|Completing)\b.*",
+        r"\b(?:You|While|Getting|Prioritizing|Sleep|To|If|Although|Since|It is|I understand|Completing|Working)\b.*",
         cleaned,
         re.DOTALL | re.IGNORECASE,
     )
     if conversational_match:
         cleaned = conversational_match.group(0).strip()
 
-    # Priority 4: Enforce sentence limit
+    # Step 6: Limit sentence count
     sentences = re.split(r"(?<=[.!?])\s+", cleaned)
     valid_sentences = [
-        s.strip() for s in sentences
-        if len(s.strip().split()) > 3 and not s.strip().lower().startswith("determine")
+        s.strip()
+        for s in sentences
+        if len(s.strip().split()) > 3
+        and not any(
+            kw in s.lower()
+            for kw in ["determine", "identify", "core conflict", "no internal analysis"]
+        )
     ]
 
     if valid_sentences:
@@ -504,7 +516,9 @@ if "Mode 1" in mode:
         "SUBMIT RESPONSE to Generate Personalized Feedback", key="submit_mode_1"
     ):
         if not user_query.strip():
-            st.error("⚠️ **Input Required:** Please type a question or reflection in the box above before submitting.")
+            st.error(
+                "⚠️ **Input Required:** Please type a question or reflection in the box above before submitting."
+            )
         else:
             t_bed = datetime(2026, 1, 1, bed_hr, bed_min)
             t_wake = datetime(2026, 1, 1, wake_hr, wake_min)
@@ -530,8 +544,9 @@ if "Mode 1" in mode:
                     )
 
                     system_prompt = (
-                        "You are an evidence-based sleep coach. Speak directly to the user in 2 to 3 sentences. "
-                        "Do not output internal analysis, headings, steps, or reasoning. Output only the advice inside <advice> tags."
+                        "You are an evidence-based sleep coach. Provide direct, helpful sleep guidance "
+                        "in 2 to 3 sentences. Output only your direct response inside <advice> tags. "
+                        "Do not output planning, steps, or restatements."
                     )
 
                     user_prompt = f"""
@@ -561,7 +576,13 @@ Respond directly to the user inside <advice> tags.
                                 {"role": "user", "content": user_prompt},
                             ],
                             "temperature": 0.2,
-                            "max_tokens": 400,
+                            "max_tokens": 300,
+                            "stop": [
+                                "Determine the Core",
+                                "Identify the Core",
+                                "No internal analysis",
+                                "</advice>",
+                            ],
                         }
 
                         response = requests.post(
@@ -659,7 +680,9 @@ else:
         "SUBMIT RESPONSE to Generate Personalized Feedback", key="submit_mode_2"
     ):
         if not user_query.strip():
-            st.error("⚠️ **Input Required:** Please type your rationale in the box above before submitting.")
+            st.error(
+                "⚠️ **Input Required:** Please type your rationale in the box above before submitting."
+            )
         else:
             t_now = datetime(2026, 1, 1, now_hr, now_min)
             t_wake = datetime(2026, 1, 1, target_hr, target_min)
@@ -684,8 +707,9 @@ else:
                     )
 
                     system_prompt = (
-                        "You are an evidence-based sleep coach. Speak directly to the user in 2 to 3 sentences. "
-                        "Do not output internal analysis, headings, steps, or reasoning. Output only the advice inside <advice> tags."
+                        "You are an evidence-based sleep coach. Provide direct, helpful sleep guidance "
+                        "in 2 to 3 sentences. Output only your direct response inside <advice> tags. "
+                        "Do not output planning, steps, or restatements."
                     )
 
                     user_prompt = f"""
@@ -717,7 +741,13 @@ Respond directly to the user inside <advice> tags.
                                 {"role": "user", "content": user_prompt},
                             ],
                             "temperature": 0.2,
-                            "max_tokens": 400,
+                            "max_tokens": 300,
+                            "stop": [
+                                "Determine the Core",
+                                "Identify the Core",
+                                "No internal analysis",
+                                "</advice>",
+                            ],
                         }
 
                         response = requests.post(
