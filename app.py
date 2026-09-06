@@ -650,11 +650,20 @@ else:
                     )
 
                     user_prompt = f"""
+
+
+CRITICAL INSTRUCTION: Output ONLY your final advice in 1 to 3 sentences maximum. Do NOT include any thinking process, reasoning steps, or intros like "Here's a thinking process:".
+
+The current time is {now_display}, and the user aims to wake up at {target_display} (available sleep: {available_sleep:.1f} hrs vs target sleep: {aim_sleep} hrs).
+Write a supportive answer in maximum 3 sentences.
+
 USER METRICS:
 - Current Time: {now_display}
 - Target Wake Time: {target_display}
 - Available Sleep: {available_sleep:.1f} hours
 - Sleep Goal: {aim_sleep:.1f} hours
+
+Do not display your thinking process. Write a supportive answer in maximum 3 sentences.
 
 SCIENTIFIC CONTEXT:
 {context_str}
@@ -662,7 +671,6 @@ SCIENTIFIC CONTEXT:
 USER DELAY REASON:
 {user_query}
 
-Provide concise advice directly addressing their rationale. Wrap output strictly inside <advice>...</advice> tags. Do not display your thinking process. Produce a 3-sentence answer.
 """
 
                     try:
