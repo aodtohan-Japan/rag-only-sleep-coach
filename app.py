@@ -158,17 +158,24 @@ else:
     st.sidebar.success("🔒 API Key loaded securely from Secrets!")
 
 # ==============================================================================
-# LOAD RAG KNOWLEDGE BASE (.pkl file with robust path resolution)
+# LOAD RAG KNOWLEDGE BASE (Auto-downloads raw binary from GitHub Releases)
 # ==============================================================================
+RELEASE_DOWNLOAD_URL = "https://github.com/aodtohan-Japan/rag-sleep-coach/releases/download/v1.0/lightweight_rag_components.pkl"
+
 @st.cache_resource
 def load_rag_artifact():
-    # Resolve the directory relative to this app.py file
     base_dir = os.path.dirname(os.path.abspath(__file__))
     file_path = os.path.join(base_dir, "lightweight_rag_components.pkl")
     
+    # Download raw binary file if it doesn't exist locally
     if not os.path.exists(file_path):
-        raise FileNotFoundError(f"File not found at target path: {file_path}")
-        
+        with st.spinner("Downloading RAG Knowledge Base from GitHub Release..."):
+            response = requests.get(RELEASE_DOWNLOAD_URL, stream=True)
+            response.raise_for_status()
+            with open(file_path, "wb") as f:
+                for chunk in response.iter_content(chunk_size=8192):
+                    f.write(chunk)
+                    
     with open(file_path, 'rb') as f:
         rag_payload = pickle.load(f)
     return rag_payload
@@ -182,17 +189,9 @@ try:
         rag_chunks = rag_payload
 
     st.sidebar.success("✅ RAG Knowledge Base Loaded!")
-except FileNotFoundError as fnf_err:
-    st.sidebar.error("❌ File Missing")
-    st.error(f"**FileNotFound Error:** {fnf_err}")
-    st.stop()
 except Exception as e:
-    st.sidebar.error("❌ Pickling Error")
-    st.error(
-        f"**Error loading RAG file (`{e}`):**\n\n"
-        "This usually happens when GitHub uploads the `.pkl` file as a plain text pointer. "
-        "Please ensure `lightweight_rag_components.pkl` is uploaded directly as a raw binary file to your repository root."
-    )
+    st.sidebar.error("❌ Knowledge Base Error")
+    st.error(f"**Error loading RAG file (`{e}`):** Please verify the `RELEASE_DOWNLOAD_URL` link in `app.py`.")
     st.stop()
 
 # ==============================================================================
