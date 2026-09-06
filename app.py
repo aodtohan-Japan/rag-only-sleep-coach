@@ -170,25 +170,22 @@ else:
     st.sidebar.success("🔒 API Key loaded securely from Secrets!")
 
 # ==============================================================================
-# LOAD RAG KNOWLEDGE BASE (Auto-downloads raw binary from GitHub Releases)
+# LOAD RAG KNOWLEDGE BASE
 # ==============================================================================
 RELEASE_DOWNLOAD_URL = "https://github.com/aodtohan-Japan/rag-only-sleep-coach/releases/download/v1.0/lightweight_rag_components.pkl"
 PICKLE_MAGIC_BYTES = (b"\x80\x02", b"\x80\x03", b"\x80\x04", b"\x80\x05")
 
 
 def decompress_if_needed(data: bytes) -> bytes:
-    """Decompresses zlib/gzip data if magic pickle bytes are missing."""
     if data.startswith(PICKLE_MAGIC_BYTES):
         return data
 
-    # Check for zlib header (0x78)
     if data.startswith(b"\x78"):
         try:
             return zlib.decompress(data)
         except Exception:
             pass
 
-    # Check for gzip header
     try:
         return gzip.decompress(data)
     except Exception:
@@ -203,10 +200,10 @@ def load_rag_artifact():
     file_path = os.path.join(base_dir, "lightweight_rag_components.pkl")
 
     if not os.path.exists(file_path):
-        with st.spinner("Downloading RAG Knowledge Base from GitHub Release..."):
+        with st.spinner("Downloading RAG Knowledge Base..."):
             headers = {
                 "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)",
-                "Accept-Encoding": "identity",  # Request uncompressed transfer
+                "Accept-Encoding": "identity",
             }
             response = requests.get(
                 RELEASE_DOWNLOAD_URL,
@@ -224,16 +221,13 @@ def load_rag_artifact():
     with open(file_path, "rb") as f:
         payload = f.read()
 
-    # Attempt decompression if needed
     payload = decompress_if_needed(payload)
 
-    # Validate pickle header
     if not payload.startswith(PICKLE_MAGIC_BYTES):
         if os.path.exists(file_path):
             os.remove(file_path)
         raise ValueError(
-            f"Downloaded payload is not a valid pickle file (received header: {payload[:20]!r}). "
-            "Please ensure the repository/release asset is public."
+            f"Downloaded payload is not a valid pickle file (received header: {payload[:20]!r})."
         )
 
     return pickle.loads(payload)
@@ -250,9 +244,7 @@ try:
     st.sidebar.success("✅ RAG Knowledge Base Loaded!")
 except Exception as e:
     st.sidebar.error("❌ Knowledge Base Error")
-    st.error(
-        f"**Error loading RAG file (`{e}`):** Please verify the `RELEASE_DOWNLOAD_URL` link in `app.py`."
-    )
+    st.error(f"**Error loading RAG file (`{e}`)**")
     st.stop()
 
 
@@ -385,27 +377,28 @@ def render_time_picker(
 
 
 def clean_and_trim_response(raw_text: str) -> str:
-    """Extracts content exclusively inside <advice> tags to prevent thinking leaks."""
-    # 1. Primary Strategy: Extract content inside <advice> tags
-    match = re.search(r"<advice>(.*?)</advice>", raw_text, re.DOTALL)
-    if match:
-        return match.group(1).strip()
-
-    # 2. Fallback Cleanup Strategy if tags are missing
+    """Robust extraction logic that prevents output loss."""
+    # Step 1: Remove common reasoning block patterns if present
     cleaned = re.sub(
         r"<think>.*?</think>", "", raw_text, flags=re.DOTALL
     ).strip()
 
-    if "Draft 1:" in cleaned:
-        cleaned = cleaned.split("Draft 1:")[-1].strip()
-    elif "Here's a thinking process:" in cleaned:
-        cleaned = cleaned.split("Here's a thinking process:")[-1].strip()
+    # Step 2: Extract contents of <advice> if present
+    match = re.search(r"<advice>(.*?)</advice>", cleaned, re.DOTALL)
+    if match and match.group(1).strip():
+        return match.group(1).strip()
 
-    cleaned = re.sub(r"^\s*[\*\-\•\d\.]+\s*", "", cleaned).strip()
+    # Step 3: Remove potential conversational preambles
+    for preamble in [
+        "Draft 1:",
+        "Here's a response:",
+        "Here is the advice:",
+        "Advice:",
+    ]:
+        if preamble in cleaned:
+            cleaned = cleaned.split(preamble)[-1].strip()
 
-    sentences = re.split(r"(?<=[.!?])\s+", cleaned)
-    if len(sentences) > 3:
-        return " ".join(sentences[:3]).strip()
+    # Step 4: Ensure text isn't empty after cleanup
     return cleaned if cleaned else raw_text.strip()
 
 
@@ -437,10 +430,9 @@ else:
 st.markdown("---")
 
 if "Mode 1" in mode:
-    # Question Block 1
     st.markdown(
         f"""
-    <div style="background-color: {card_bg_blue}; border: 2px solid {card_border}; border-radius: 28px; padding: 24px; margin-bottom: 25px; box-shadow: 0 4px 12px rgba(0,0,0,0.04);">
+    <div style="background-color: {card_bg_blue}; border: 2px solid {card_border}; border-radius: 28px; padding: 24px; margin-bottom: 25px;">
         <div class="card-title">Previous Night Bedtime</div>
     </div>
     """,
@@ -453,10 +445,9 @@ if "Mode 1" in mode:
         default_period="PM",
     )
 
-    # Question Block 2
     st.markdown(
         f"""
-    <div style="background-color: {card_bg_green}; border: 2px solid {card_border}; border-radius: 28px; padding: 24px; margin-bottom: 25px; box-shadow: 0 4px 12px rgba(0,0,0,0.04);">
+    <div style="background-color: {card_bg_green}; border: 2px solid {card_border}; border-radius: 28px; padding: 24px; margin-bottom: 25px;">
         <div class="card-title">Morning Wake Up Time</div>
     </div>
     """,
@@ -469,10 +460,9 @@ if "Mode 1" in mode:
         default_period="AM",
     )
 
-    # Question Block 3: Subjective Alertness Self-Report
     st.markdown(
         f"""
-    <div style="background-color: {card_bg_purple}; border: 2px solid {card_border}; border-radius: 28px; padding: 24px; margin-bottom: 25px; box-shadow: 0 4px 12px rgba(0,0,0,0.04);">
+    <div style="background-color: {card_bg_purple}; border: 2px solid {card_border}; border-radius: 28px; padding: 24px; margin-bottom: 25px;">
         <div class="card-title">Rate your current alertness-sleepiness levels (1 = extremely alert; 9 = extremely sleepy)</div>
     </div>
     """,
@@ -488,10 +478,9 @@ if "Mode 1" in mode:
         label_visibility="collapsed",
     )
 
-    # Question Block 4
     st.markdown(
         f"""
-    <div style="background-color: {card_bg_slate}; border: 2px solid {card_border}; border-radius: 28px; padding: 24px; margin-bottom: 15px; box-shadow: 0 4px 12px rgba(0,0,0,0.04);">
+    <div style="background-color: {card_bg_slate}; border: 2px solid {card_border}; border-radius: 28px; padding: 24px; margin-bottom: 15px;">
         <div class="card-title">(REQUIRED) Type in your Sleep Question or Check-in Reflection</div>
     </div>
     """,
@@ -509,9 +498,7 @@ if "Mode 1" in mode:
         "SUBMIT RESPONSE to Generate Personalized Feedback", key="submit_mode_1"
     ):
         if not user_query.strip():
-            st.error(
-                "⚠️ **Input Required:** Please type a question or reflection in the box above before submitting."
-            )
+            st.error("⚠️ **Input Required:** Please type a question.")
         else:
             t_bed = datetime(2026, 1, 1, bed_hr, bed_min)
             t_wake = datetime(2026, 1, 1, wake_hr, wake_min)
@@ -526,13 +513,9 @@ if "Mode 1" in mode:
             )
 
             if not openrouter_api_key:
-                st.error(
-                    "API Key not found. Please set `OPENROUTER_API_KEY` in Streamlit secrets."
-                )
+                st.error("API Key missing.")
             else:
-                with st.spinner(
-                    "Executing retrieval & querying OpenRouter..."
-                ):
+                with st.spinner("Generating advice..."):
                     top_matches = search_raw_text_chunks(
                         user_query, rag_chunks, top_k=3
                     )
@@ -540,20 +523,12 @@ if "Mode 1" in mode:
                         [f"Source ({m[2]}): {m[1]}" for m in top_matches]
                     )
 
-                    system_prompt = """You are an expert, empathetic sleep coach assistant.
-
-CRITICAL OUTPUT CONSTRAINTS:
-1. Output MUST be between 1 and 3 sentences total inside <advice> and </advice> tags.
-2. Output ONLY the final advice aimed at the user.
-3. DO NOT include reasoning steps, drafts, meta-commentary, or inner thoughts outside or inside the tags.
-
-Example Output:
-<advice>Getting 7.0 hours of sleep while feeling at an alertness level of 4 shows your body is maintaining a solid baseline. To sustain this energy through the afternoon, prioritize early morning sunlight exposure and keep hydrated. Avoid late-day caffeine so you can easily fall asleep at your target bedtime tonight.</advice>"""
+                    system_prompt = "You are a concise, evidence-based sleep coach. Provide clear, empathetic guidance in 2 to 3 sentences based on the user's data and context. Enclose your advice inside <advice></advice> tags."
 
                     user_prompt = f"""
 USER METRICS:
-- Total Sleep Duration: {sleep_duration:.1f} hours (Bedtime: {bedtime_display}, Wake time: {wake_display})
-- Self-Reported Alertness/Sleepiness Level: {user_self_alertness}/9 (1 = Extremely Alert, 9 = Extremely Sleepy)
+- Total Sleep Duration: {sleep_duration:.1f} hours ({bedtime_display} to {wake_display})
+- Self-Reported Sleepiness Level: {user_self_alertness}/9
 
 SCIENTIFIC CONTEXT:
 {context_str}
@@ -561,10 +536,7 @@ SCIENTIFIC CONTEXT:
 USER REFLECTION:
 {user_query}
 
-INSTRUCTIONS:
-Directly acknowledge their logged sleep duration and self-reported alertness score. Provide evidence-based advice tailored to their subjective feeling and reflection using the context. 
-
-Write supportive advice in 1 to 3 sentences wrapped in <advice></advice> tags.
+Provide concise, personalized advice directly addressing their metrics and context within <advice> tags.
 """
 
                     try:
@@ -579,8 +551,8 @@ Write supportive advice in 1 to 3 sentences wrapped in <advice></advice> tags.
                                 {"role": "system", "content": system_prompt},
                                 {"role": "user", "content": user_prompt},
                             ],
-                            "temperature": 0.1,
-                            "max_tokens": 150,
+                            "temperature": 0.2,
+                            "max_tokens": 300,
                         }
 
                         response = requests.post(
@@ -610,10 +582,9 @@ Write supportive advice in 1 to 3 sentences wrapped in <advice></advice> tags.
                         st.error(f"OpenRouter API Error: {e}")
 
 else:
-    # Question Block 1
     st.markdown(
         f"""
-    <div style="background-color: {card_bg_green}; border: 2px solid {card_border}; border-radius: 28px; padding: 24px; margin-bottom: 25px; box-shadow: 0 4px 12px rgba(0,0,0,0.04);">
+    <div style="background-color: {card_bg_green}; border: 2px solid {card_border}; border-radius: 28px; padding: 24px; margin-bottom: 25px;">
         <div class="card-title">What time is it now?</div>
     </div>
     """,
@@ -626,10 +597,9 @@ else:
         default_period="PM",
     )
 
-    # Question Block 2
     st.markdown(
         f"""
-    <div style="background-color: {card_bg_blue}; border: 2px solid {card_border}; border-radius: 28px; padding: 24px; margin-bottom: 25px; box-shadow: 0 4px 12px rgba(0,0,0,0.04);">
+    <div style="background-color: {card_bg_blue}; border: 2px solid {card_border}; border-radius: 28px; padding: 24px; margin-bottom: 25px;">
         <div class="card-title">What time are you aiming to get up tomorrow?</div>
     </div>
     """,
@@ -642,18 +612,17 @@ else:
         default_period="AM",
     )
 
-    # Question Block 3
     st.markdown(
         f"""
-    <div style="background-color: {card_bg_purple}; border: 2px solid {card_border}; border-radius: 28px; padding: 24px; margin-bottom: 25px; box-shadow: 0 4px 12px rgba(0,0,0,0.04);">
-        <div class="card-title">How much sleep are you aiming for? (7-9 hours of sleep is recommended; below 7 hours means sleep deprivation)</div>
+    <div style="background-color: {card_bg_purple}; border: 2px solid {card_border}; border-radius: 28px; padding: 24px; margin-bottom: 25px;">
+        <div class="card-title">How much sleep are you aiming for?</div>
     </div>
     """,
         unsafe_allow_html=True,
     )
 
     aim_sleep = st.slider(
-        "How much sleep are you aiming for? (7-9 hours of sleep is recommended; below 7 hours means sleep deprivation)",
+        "How much sleep are you aiming for?",
         min_value=0.0,
         max_value=12.0,
         value=8.0,
@@ -661,18 +630,17 @@ else:
         label_visibility="collapsed",
     )
 
-    # Question Block 4
     st.markdown(
         f"""
-    <div style="background-color: {card_bg_slate}; border: 2px solid {card_border}; border-radius: 28px; padding: 24px; margin-bottom: 15px; box-shadow: 0 4px 12px rgba(0,0,0,0.04);">
-        <div class="card-title">(REQUIRED) Type in your rationale to delay sleep tonight (i.e. Why are you putting off sleep?)</div>
+    <div style="background-color: {card_bg_slate}; border: 2px solid {card_border}; border-radius: 28px; padding: 24px; margin-bottom: 15px;">
+        <div class="card-title">(REQUIRED) Type in your rationale to delay sleep tonight</div>
     </div>
     """,
         unsafe_allow_html=True,
     )
 
     user_query = st.text_area(
-        "(REQUIRED) Type in your rationale to delay sleep tonight (i.e. Why are you putting off sleep?)",
+        "(REQUIRED) Type in your rationale to delay sleep tonight",
         placeholder="Type here...",
         height=120,
         label_visibility="collapsed",
@@ -682,9 +650,7 @@ else:
         "SUBMIT RESPONSE to Generate Personalized Feedback", key="submit_mode_2"
     ):
         if not user_query.strip():
-            st.error(
-                "⚠️ **Input Required:** Please type your rationale in the box above before submitting."
-            )
+            st.error("⚠️ **Input Required:** Please type your rationale.")
         else:
             t_now = datetime(2026, 1, 1, now_hr, now_min)
             t_wake = datetime(2026, 1, 1, target_hr, target_min)
@@ -698,13 +664,9 @@ else:
             )
 
             if not openrouter_api_key:
-                st.error(
-                    "API Key not found. Please set `OPENROUTER_API_KEY` in Streamlit secrets."
-                )
+                st.error("API Key missing.")
             else:
-                with st.spinner(
-                    "Executing retrieval & querying OpenRouter..."
-                ):
+                with st.spinner("Generating advice..."):
                     top_matches = search_raw_text_chunks(
                         user_query, rag_chunks, top_k=3
                     )
@@ -712,31 +674,22 @@ else:
                         [f"Source ({m[2]}): {m[1]}" for m in top_matches]
                     )
 
-                    system_prompt = """You are an accountability Sleep Coach dealing with bedtime procrastination. 
-
-CRITICAL OUTPUT CONSTRAINTS:
-1. Output MUST be strictly enclosed inside <advice> and </advice> tags.
-2. The advice inside MUST be between 1 and 3 sentences total.
-3. DO NOT include any reasoning, drafting, meta-commentary, or chain-of-thought inside or outside the tags.
-
-Example Output:
-<advice>While staying up to finish editing videos feels productive, cutting your available sleep down to 5.5 hours against your 8.0-hour goal severely degrades cognitive focus for tomorrow's recording. Prioritizing rest now protects memory consolidation and vocal clarity so you can perform at your best. Shutdown your screens now to protect your remaining sleep window.</advice>"""
+                    system_prompt = "You are an accountability sleep coach helping with bedtime procrastination. Provide direct, persuasive advice in 2 to 3 sentences contrasting remaining sleep time against their goal. Wrap output in <advice></advice> tags."
 
                     user_prompt = f"""
 USER METRICS:
 - Current Time: {now_display}
-- Target Wake-Up Time: {target_display}
-- Available Sleep Remaining: {available_sleep:.1f} hours
-- User's Goal Sleep: {aim_sleep:.1f} hours
+- Target Wake Time: {target_display}
+- Available Sleep: {available_sleep:.1f} hours
+- Sleep Goal: {aim_sleep:.1f} hours
 
 SCIENTIFIC CONTEXT:
 {context_str}
 
-USER NEGOTIATION RATIONALE:
+USER DELAY REASON:
 {user_query}
 
-INSTRUCTIONS:
-Address their delay rationale directly while contrasting remaining sleep ({available_sleep:.1f} hrs) against their target sleep goal ({aim_sleep:.1f} hrs). Provide supportive advice in 1 to 3 sentences wrapped in <advice></advice> tags.
+Provide concise advice inside <advice> tags addressing their rationale directly.
 """
 
                     try:
@@ -751,8 +704,8 @@ Address their delay rationale directly while contrasting remaining sleep ({avail
                                 {"role": "system", "content": system_prompt},
                                 {"role": "user", "content": user_prompt},
                             ],
-                            "temperature": 0.1,
-                            "max_tokens": 150,
+                            "temperature": 0.2,
+                            "max_tokens": 300,
                         }
 
                         response = requests.post(
