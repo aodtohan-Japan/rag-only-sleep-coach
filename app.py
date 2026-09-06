@@ -14,7 +14,9 @@ import streamlit as st
 # ==============================================================================
 # PAGE CONFIGURATION & SESSION STATE
 # ==============================================================================
-st.set_page_config(page_title="RAG-Only Sleep Coach", page_icon="🌙", layout="wide")
+st.set_page_config(
+    page_title="RAG-Only Sleep Coach", page_icon="🌙", layout="wide"
+)
 
 # Initialize dark mode state
 if "dark_mode" not in st.session_state:
@@ -382,25 +384,29 @@ def render_time_picker(
     return hr_24, int(minute), f"{hour_12:02d}:{minute} {period}"
 
 
-def clean_and_trim_response(text):
-    cleaned = re.sub(r"<think>.*?</think>", "", text, flags=re.DOTALL)
+def clean_and_trim_response(raw_text: str) -> str:
+    """Extracts content exclusively inside <advice> tags to prevent thinking leaks."""
+    # 1. Primary Strategy: Extract content inside <advice> tags
+    match = re.search(r"<advice>(.*?)</advice>", raw_text, re.DOTALL)
+    if match:
+        return match.group(1).strip()
 
-    if "Here's a thinking process:" in cleaned:
-        parts = cleaned.split("Here's a thinking process:", 1)
-        lines = parts[1].split("\n")
-        final_lines = [
-            line
-            for line in lines
-            if not re.match(r"^\s*(\d+\.|\*|\-|o)\s+", line)
-        ]
-        cleaned = " ".join(final_lines).strip()
+    # 2. Fallback Cleanup Strategy if tags are missing
+    cleaned = re.sub(
+        r"<think>.*?</think>", "", raw_text, flags=re.DOTALL
+    ).strip()
+
+    if "Draft 1:" in cleaned:
+        cleaned = cleaned.split("Draft 1:")[-1].strip()
+    elif "Here's a thinking process:" in cleaned:
+        cleaned = cleaned.split("Here's a thinking process:")[-1].strip()
 
     cleaned = re.sub(r"^\s*[\*\-\•\d\.]+\s*", "", cleaned).strip()
 
     sentences = re.split(r"(?<=[.!?])\s+", cleaned)
     if len(sentences) > 3:
-        return " ".join(sentences[:3])
-    return cleaned if cleaned else text
+        return " ".join(sentences[:3]).strip()
+    return cleaned if cleaned else raw_text.strip()
 
 
 # ==============================================================================
@@ -534,25 +540,32 @@ if "Mode 1" in mode:
                         [f"Source ({m[2]}): {m[1]}" for m in top_matches]
                     )
 
-                    system_prompt = f"""You are an expert, empathetic sleep coach assistant.
-CRITICAL OUTPUT CONSTRAINTS:
-1. Output MUST be between 1 and 3 sentences total. 
-2. Output ONLY the final advice aimed at the user.
-3. DO NOT include reasoning, chain-of-thought, meta-commentary, introductory text, or closing remarks. 
-4. Never show inner logic or reference these system constraints in the output.
+                    system_prompt = """You are an expert, empathetic sleep coach assistant.
 
+CRITICAL OUTPUT CONSTRAINTS:
+1. Output MUST be between 1 and 3 sentences total inside <advice> and </advice> tags.
+2. Output ONLY the final advice aimed at the user.
+3. DO NOT include reasoning steps, drafts, meta-commentary, or inner thoughts outside or inside the tags.
+
+Example Output:
+<advice>Getting 7.0 hours of sleep while feeling at an alertness level of 4 shows your body is maintaining a solid baseline. To sustain this energy through the afternoon, prioritize early morning sunlight exposure and keep hydrated. Avoid late-day caffeine so you can easily fall asleep at your target bedtime tonight.</advice>"""
+
+                    user_prompt = f"""
 USER METRICS:
 - Total Sleep Duration: {sleep_duration:.1f} hours (Bedtime: {bedtime_display}, Wake time: {wake_display})
 - Self-Reported Alertness/Sleepiness Level: {user_self_alertness}/9 (1 = Extremely Alert, 9 = Extremely Sleepy)
 
-Directly acknowledge their logged sleep duration and self-reported alertness score. Provide evidence-based advice tailored to their subjective feeling and reflection using the scientific context below.
-Write a supportive answer in maximum 3 sentences.
-
-CONTEXT:
+SCIENTIFIC CONTEXT:
 {context_str}
 
 USER REFLECTION:
-{user_query}"""
+{user_query}
+
+INSTRUCTIONS:
+Directly acknowledge their logged sleep duration and self-reported alertness score. Provide evidence-based advice tailored to their subjective feeling and reflection using the context. 
+
+Write supportive advice in 1 to 3 sentences wrapped in <advice></advice> tags.
+"""
 
                     try:
                         url = "https://openrouter.ai/api/v1/chat/completions"
@@ -563,9 +576,11 @@ USER REFLECTION:
                         payload = {
                             "model": "nvidia/nemotron-3.5-lightning:free",
                             "messages": [
-                                {"role": "user", "content": system_prompt}
+                                {"role": "system", "content": system_prompt},
+                                {"role": "user", "content": user_prompt},
                             ],
-                            "max_tokens": 1000,
+                            "temperature": 0.1,
+                            "max_tokens": 150,
                         }
 
                         response = requests.post(
@@ -697,28 +712,32 @@ else:
                         [f"Source ({m[2]}): {m[1]}" for m in top_matches]
                     )
 
-                    system_prompt = f"""You are an accountability Sleep Coach dealing with bedtime procrastination. 
+                    system_prompt = """You are an accountability Sleep Coach dealing with bedtime procrastination. 
+
 CRITICAL OUTPUT CONSTRAINTS:
-1. Output MUST be between 1 and 3 sentences total. 
-2. Output ONLY the final advice aimed at the user.
-3. DO NOT include reasoning, chain-of-thought, meta-commentary, introductory text, or closing remarks. 
-4. Never show inner logic or reference these system constraints in the output.
+1. Output MUST be strictly enclosed inside <advice> and </advice> tags.
+2. The advice inside MUST be between 1 and 3 sentences total.
+3. DO NOT include any reasoning, drafting, meta-commentary, or chain-of-thought inside or outside the tags.
 
+Example Output:
+<advice>While staying up to finish editing videos feels productive, cutting your available sleep down to 5.5 hours against your 8.0-hour goal severely degrades cognitive focus for tomorrow's recording. Prioritizing rest now protects memory consolidation and vocal clarity so you can perform at your best. Shutdown your screens now to protect your remaining sleep window.</advice>"""
 
+                    user_prompt = f"""
 USER METRICS:
 - Current Time: {now_display}
 - Target Wake-Up Time: {target_display}
 - Available Sleep Remaining: {available_sleep:.1f} hours
-- User's Goal Sleep: {aim_sleep} hours
+- User's Goal Sleep: {aim_sleep:.1f} hours
 
-Address their delay rationale directly while contrasting their remaining available sleep ({available_sleep:.1f} hrs) against their target sleep goal ({aim_sleep} hrs). Provide supportive, persuasive advice in maximum 3 sentences based on the scientific context below.
-Write a supportive answer in maximum 3 sentences.
-
-CONTEXT:
+SCIENTIFIC CONTEXT:
 {context_str}
 
 USER NEGOTIATION RATIONALE:
-{user_query}"""
+{user_query}
+
+INSTRUCTIONS:
+Address their delay rationale directly while contrasting remaining sleep ({available_sleep:.1f} hrs) against their target sleep goal ({aim_sleep:.1f} hrs). Provide supportive advice in 1 to 3 sentences wrapped in <advice></advice> tags.
+"""
 
                     try:
                         url = "https://openrouter.ai/api/v1/chat/completions"
@@ -729,9 +748,11 @@ USER NEGOTIATION RATIONALE:
                         payload = {
                             "model": "nvidia/nemotron-3.5-lightning:free",
                             "messages": [
-                                {"role": "user", "content": system_prompt}
+                                {"role": "system", "content": system_prompt},
+                                {"role": "user", "content": user_prompt},
                             ],
-                            "max_tokens": 1000,
+                            "temperature": 0.1,
+                            "max_tokens": 150,
                         }
 
                         response = requests.post(
