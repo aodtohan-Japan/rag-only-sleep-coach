@@ -347,7 +347,15 @@ def clean_and_trim_response(raw_text: str, max_sentences: int = 3) -> str:
     if advice_match and advice_match.group(1).strip():
         cleaned = advice_match.group(1).strip()
     else:
-        # Priority 2: Strip greedy CoT header prefixes
+        # Priority 2: Scrub numbered planning steps (e.g., "2. Determine the Core Message:")
+        cleaned = re.sub(
+            r"\d+\.\s*(?:Determine the Core Message|Analyze User Input|Formulate Advice|Evaluate Constraints|Scientific Context)[^\n]*",
+            "",
+            cleaned,
+            flags=re.IGNORECASE,
+        )
+
+        # Priority 3: Strip greedy CoT header prefixes
         cot_prefixes = [
             r"(?i)^.*?Here'?s a thinking process:?\s*",
             r"(?i)^.*?Analyze User Input:?\s*",
@@ -366,34 +374,50 @@ def clean_and_trim_response(raw_text: str, max_sentences: int = 3) -> str:
             flags=re.IGNORECASE,
         )
 
-        # Filter out planner/key-value metadata lines
-        lines = [
-            line
-            for line in cleaned.split("\n")
-            if not re.match(
-                r"^\s*(Current Time|Target Wake|Available Sleep|Sleep Goal|User Delay Reason|Constraints|Scientific Context|Determine the Core Message):",
-                line,
+        # Filter out planner key-value metadata lines and tag remnants
+        lines = []
+        for line in cleaned.split("\n"):
+            line_str = line.strip()
+            if not line_str:
+                continue
+            # Skip lines matching key metadata patterns
+            if re.match(
+                r"^\s*(?:tags\.?|Current Time|Target Wake|Available Sleep|Sleep Goal|User Delay Reason|Constraints|Scientific Context|Determine the Core Message|User is awake|Needs to wake):",
+                line_str,
                 re.IGNORECASE,
-            )
-        ]
-        cleaned = "\n".join(lines).strip()
+            ):
+                continue
+            # Skip lines that are just raw metadata observations
+            if re.match(r"^User is awake at.*", line_str, re.IGNORECASE):
+                continue
+            lines.append(line_str)
 
-    # Priority 3: Remove echoed instruction phrases
+        cleaned = " ".join(lines).strip()
+
+    # Priority 4: Remove remaining echoed instruction phrases or tag remnants
     prompt_echos = [
         r"(?i)^and end with\s*",
         r"(?i)^start your output immediately with\s*",
         r"(?i)^output only the response\s*",
+        r"(?i)^tags\.?\s*",
     ]
     for echo in prompt_echos:
         cleaned = re.sub(echo, "", cleaned).strip()
 
-    # Priority 4: Clean list markers / bullet points
+    # Priority 5: Clean residual list markers / bullet points
     cleaned = re.sub(r"^\s*[\*\-\•\d\.]+\s*", "", cleaned).strip()
 
-    # Priority 5: Enforce strict sentence cap
+    # Priority 6: Enforce strict sentence cap on standard sentence delimiters
     sentences = re.split(r"(?<=[.!?])\s+", cleaned)
-    if len(sentences) > max_sentences:
-        return " ".join(sentences[:max_sentences])
+
+    # Filter out any non-conversational leftover sentence fragments
+    valid_sentences = [
+        s for s in sentences
+        if s and not s.lower().startswith("tags") and len(s.split()) > 3
+    ]
+
+    if valid_sentences:
+        return " ".join(valid_sentences[:max_sentences])
 
     return cleaned if cleaned else "Please try submitting your reflection again."
 
