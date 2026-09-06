@@ -622,7 +622,7 @@ else:
     )
 
     aim_sleep = st.slider(
-        "How much sleep are you aiming for?",
+        "How much sleep are you aiming for? (7-9 hours of sleep is recommended; below 7 hours means sleep deprivation)",
         min_value=0.0,
         max_value=12.0,
         value=8.0,
@@ -640,7 +640,7 @@ else:
     )
 
     user_query = st.text_area(
-        "(REQUIRED) Type in your rationale to delay sleep tonight",
+        "(REQUIRED) Type in your rationale to delay sleep tonight (i.e. Why are you putting off sleep?)",
         placeholder="Type here...",
         height=120,
         label_visibility="collapsed",
