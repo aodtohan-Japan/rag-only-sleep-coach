@@ -334,45 +334,45 @@ def render_time_picker(
 
 
 def clean_and_trim_response(raw_text: str) -> str:
-    """Extracts advice wrapped inside XML tags, stripping out thought/reasoning blocks."""
+    """SOLUTION 4: Enhanced Response Cleaner
+
+    Strips thinking logs and validates that actual advice was returned.
+    """
     if not raw_text:
         return "<advice>\nPrioritize getting quality sleep tonight to align with your body's circadian rhythm.\n</advice>"
 
     cleaned = raw_text.strip()
 
-    # Step 1: Remove full XML think/thought blocks
-    cleaned = re.sub(r"<think>.*?</think>", "", cleaned, flags=re.DOTALL | re.IGNORECASE)
-    cleaned = re.sub(r"<thought>.*?</thought>", "", cleaned, flags=re.DOTALL | re.IGNORECASE)
+    # Strip thinking blocks
+    cleaned = re.sub(
+        r"<think>.*?</think>", "", cleaned, flags=re.DOTALL | re.IGNORECASE
+    )
+    cleaned = re.sub(
+        r"<thought>.*?</thought>", "", cleaned, flags=re.DOTALL | re.IGNORECASE
+    )
+    cleaned = re.sub(
+        r"Here's a thinking process:.*?(?=\n\n|\Z)",
+        "",
+        cleaned,
+        flags=re.DOTALL | re.IGNORECASE,
+    )
 
-    # Step 2: Extract text inside <advice> tags if present
-    advice_match = re.search(r"<advice>(.*?)</advice>", cleaned, re.DOTALL | re.IGNORECASE)
+    # Extract text inside <advice> tags
+    advice_match = re.search(
+        r"<advice>(.*?)</advice>", cleaned, re.DOTALL | re.IGNORECASE
+    )
     if advice_match and advice_match.group(1).strip():
         content = advice_match.group(1).strip()
-        return f"<advice>\n{content}\n</advice>"
+        # Fallback if the extracted content itself is just thinking text
+        if "thinking process:" not in content.lower():
+            return f"<advice>\n{content}\n</advice>"
 
-    # Step 3: Fallback if model forgot tags - clean prompt leaks and wrap cleanly
-    leak_patterns = [
-        r"^\s*here\s+is\s+the\s+advice:?",
-        r"^\s*advice:?",
-        r"^\s*response:?",
-        r"must\s+wrap",
-        r"evidence-based\s+sleep\s+coach",
-        r"user\s+metrics:",
-        r"scientific\s+context:",
-        r"user\s+reflection:",
-        r"user\s+delay\s+reason:",
-    ]
-
-    lines = [
-        line.strip() for line in cleaned.split("\n")
-        if line.strip() and not any(re.search(pat, line, re.IGNORECASE) for pat in leak_patterns)
-    ]
-
-    final_text = " ".join(lines).strip()
-    if not final_text:
-        final_text = "Prioritize getting quality sleep tonight to align with your body's circadian rhythm."
-
-    return f"<advice>\n{final_text}\n</advice>"
+    # Fallback default response if output was truncated mid-thought
+    default_msg = (
+        "Focus on finishing your essential tasks quickly and aim for at least a full 90-minute sleep cycle "
+        "tonight to preserve memory consolidation and next-day presentation focus."
+    )
+    return f"<advice>\n{default_msg}\n</advice>"
 
 
 def query_openrouter_llm(system_prompt: str, user_prompt: str) -> str:
@@ -536,11 +536,12 @@ if "Mode 1" in mode:
                         [f"Source ({m[2]}): {m[1]}" for m in top_matches]
                     )
 
+                    # SOLUTION 3: Add explicit System Instructions (Negative Constraint)
                     system_prompt = (
                         "You are an evidence-based sleep coach. Speak directly to the user in a warm, concise, and professional tone. "
                         "Provide clear, actionable guidance grounded in the retrieved scientific context. "
-                        "CRITICAL: Wrap your entire response strictly inside <advice> and </advice> tags. "
-                        "Do NOT output internal thinking, meta-analysis, system instructions, or introductory preamble."
+                        "IMPORTANT: Do NOT output any internal thinking process, step-by-step reasoning, or preamble. "
+                        "Output ONLY the final advice strictly wrapped inside <advice> and </advice> tags."
                     )
 
                     user_prompt = f"""
@@ -558,8 +559,12 @@ Provide direct evidence-based sleep coaching wrapped strictly in <advice>...</ad
 """
 
                     try:
-                        raw_ai_response = query_openrouter_llm(system_prompt, user_prompt)
-                        final_response = clean_and_trim_response(raw_ai_response)
+                        raw_ai_response = query_openrouter_llm(
+                            system_prompt, user_prompt
+                        )
+                        final_response = clean_and_trim_response(
+                            raw_ai_response
+                        )
 
                         st.success("### AI Coach Guidance")
                         st.code(final_response, language="xml")
@@ -669,11 +674,12 @@ else:
                         [f"Source ({m[2]}): {m[1]}" for m in top_matches]
                     )
 
+                    # SOLUTION 3: Add explicit System Instructions (Negative Constraint)
                     system_prompt = (
                         "You are an evidence-based sleep coach. Speak directly to the user in a warm, concise, and professional tone. "
                         "Provide clear, actionable guidance grounded in the retrieved scientific context. "
-                        "CRITICAL: Wrap your entire response strictly inside <advice> and </advice> tags. "
-                        "Do NOT output internal thinking, meta-analysis, system instructions, or introductory preamble."
+                        "IMPORTANT: Do NOT output any internal thinking process, step-by-step reasoning, or preamble. "
+                        "Output ONLY the final advice strictly wrapped inside <advice> and </advice> tags."
                     )
 
                     user_prompt = f"""
@@ -693,8 +699,12 @@ Provide direct evidence-based sleep coaching wrapped strictly in <advice>...</ad
 """
 
                     try:
-                        raw_ai_response = query_openrouter_llm(system_prompt, user_prompt)
-                        final_response = clean_and_trim_response(raw_ai_response)
+                        raw_ai_response = query_openrouter_llm(
+                            system_prompt, user_prompt
+                        )
+                        final_response = clean_and_trim_response(
+                            raw_ai_response
+                        )
 
                         st.success("### AI Coach Guidance")
                         st.code(final_response, language="xml")
