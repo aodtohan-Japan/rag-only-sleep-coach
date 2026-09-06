@@ -295,7 +295,7 @@ def search_raw_text_chunks(query, chunks, top_k=3):
 
 
 # ==============================================================================
-# HELPER FUNCTIONS
+# HELPER FUNCTIONS & LLM CALL
 # ==============================================================================
 def render_time_picker(
     label_prefix, default_hour=10, default_minute=0, default_period="PM"
@@ -333,99 +333,84 @@ def render_time_picker(
     return hr_24, int(minute), f"{hour_12:02d}:{minute} {period}"
 
 
-def clean_and_trim_response(raw_text: str, max_sentences: int = 3) -> str:
-    """Scrubs CoT artifacts, regurgitated system prompts, and analytical headers."""
+def clean_and_trim_response(raw_text: str) -> str:
+    """Extracts advice wrapped inside XML tags, stripping out thought/reasoning blocks."""
     if not raw_text:
-        return "No response generated. Please try again."
+        return "<advice>\nPrioritize getting quality sleep tonight to align with your body's circadian rhythm.\n</advice>"
 
     cleaned = raw_text.strip()
 
-    # Step 1: Extract content inside <advice> tags if present
-    advice_match = re.search(
-        r"<advice>(.*?)(?:</advice>|\Z)", cleaned, re.DOTALL | re.IGNORECASE
-    )
+    # Step 1: Remove full XML think/thought blocks
+    cleaned = re.sub(r"<think>.*?</think>", "", cleaned, flags=re.DOTALL | re.IGNORECASE)
+    cleaned = re.sub(r"<thought>.*?</thought>", "", cleaned, flags=re.DOTALL | re.IGNORECASE)
+
+    # Step 2: Extract text inside <advice> tags if present
+    advice_match = re.search(r"<advice>(.*?)</advice>", cleaned, re.DOTALL | re.IGNORECASE)
     if advice_match and advice_match.group(1).strip():
-        cleaned = advice_match.group(1).strip()
+        content = advice_match.group(1).strip()
+        return f"<advice>\n{content}\n</advice>"
 
-    # Step 2: Scrub comprehensive prompt leakage and common CoT headers
-    prompt_leak_patterns = [
-        r"code outut still says:.*",
-        r"Do not output planning.*",
-        r"No internal analysis.*?(?=\n\n|\n[A-Z]|\Z)",
-        r"Only advice inside.*?(?=\n\n|\n[A-Z]|\Z)",
-        r"Identify the Core Conflict:.*",
-        r"Determine the Core Message:.*",
-        r"Analyze User Input:.*",
-        r"Evaluate Constraints:.*",
-        r"Thought Process:.*",
-        r"Reasoning:.*",
-    ]
-    for pattern in prompt_leak_patterns:
-        cleaned = re.sub(pattern, "", cleaned, flags=re.IGNORECASE | re.DOTALL)
-
-    # Step 3: Strip XML/HTML tags
-    cleaned = re.sub(
-        r"</?(?:advice|think|thought|reasoning)>", "", cleaned, flags=re.IGNORECASE
-    )
-
-    # Step 4: Line-by-line filtering of analytical metadata and parameter summaries
-    filtered_lines = []
-    for line in cleaned.split("\n"):
-        line_str = line.strip()
-        if not line_str:
-            continue
-
-        # Skip metadata lines, key-value pairs, or prompt fragments
-        if re.match(
-            r"^\s*(?:tags\.?|Determine|Identify|Do not|Current Time|Target Wake|Available Sleep|Sleep Goal|User Delay Reason|Constraints|Scientific Context|User is awake|Needs to wake|It's \d+ [AP]M|User has work|Available:|Goal:):",
-            line_str,
-            re.IGNORECASE,
-        ):
-            continue
-
-        # Skip bullet points that echo user facts instead of providing advice
-        if re.match(
-            r"^\s*[\-\*•]\s*(?:It's \d+|Available:|User|Goal:|Target|Do not|Output)",
-            line_str,
-            re.IGNORECASE,
-        ):
-            continue
-
-        filtered_lines.append(line_str)
-
-    cleaned = " ".join(filtered_lines).strip()
-
-    # Step 5: Locate first actual conversational sentence addressed to the user
-    conversational_match = re.search(
-        r"\b(?:You|While|Getting|Prioritizing|Sleep|To|If|Although|Since|It is|I understand|Completing|Working)\b.*",
-        cleaned,
-        re.DOTALL | re.IGNORECASE,
-    )
-    if conversational_match:
-        cleaned = conversational_match.group(0).strip()
-
-    # Step 6: Limit sentence count and eliminate leak fragments
-    sentences = re.split(r"(?<=[.!?])\s+", cleaned)
-    valid_sentences = [
-        s.strip()
-        for s in sentences
-        if len(s.strip().split()) > 3
-        and not any(
-            kw in s.lower()
-            for kw in [
-                "determine",
-                "identify",
-                "core conflict",
-                "no internal analysis",
-                "do not output",
-            ]
-        )
+    # Step 3: Fallback if model forgot tags - clean prompt leaks and wrap cleanly
+    leak_patterns = [
+        r"^\s*here\s+is\s+the\s+advice:?",
+        r"^\s*advice:?",
+        r"^\s*response:?",
+        r"must\s+wrap",
+        r"evidence-based\s+sleep\s+coach",
+        r"user\s+metrics:",
+        r"scientific\s+context:",
+        r"user\s+reflection:",
+        r"user\s+delay\s+reason:",
     ]
 
-    if valid_sentences:
-        return " ".join(valid_sentences[:max_sentences])
+    lines = [
+        line.strip() for line in cleaned.split("\n")
+        if line.strip() and not any(re.search(pat, line, re.IGNORECASE) for pat in leak_patterns)
+    ]
 
-    return cleaned if cleaned else "Please try submitting your reflection again."
+    final_text = " ".join(lines).strip()
+    if not final_text:
+        final_text = "Prioritize getting quality sleep tonight to align with your body's circadian rhythm."
+
+    return f"<advice>\n{final_text}\n</advice>"
+
+
+def query_openrouter_llm(system_prompt: str, user_prompt: str) -> str:
+    """Issues API request keeping requested free-tier models (Nemotron primary)."""
+    url = "https://openrouter.ai/api/v1/chat/completions"
+    headers = {
+        "Authorization": f"Bearer {openrouter_api_key}",
+        "Content-Type": "application/json",
+    }
+
+    candidate_models = [
+        "nvidia/nemotron-3.5-lightning:free",
+        "google/gemini-2.0-flash-lite-preview-02-05:free",
+        "qwen/qwen-2.5-72b-instruct:free",
+    ]
+
+    for model_name in candidate_models:
+        payload = {
+            "model": model_name,
+            "messages": [
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt},
+            ],
+            "temperature": 0.2,
+            "max_tokens": 500,
+        }
+
+        try:
+            response = requests.post(url, headers=headers, json=payload, timeout=12)
+            if response.status_code == 200:
+                res_json = response.json()
+                content = res_json["choices"][0]["message"]["content"]
+                if content and len(content.strip()) > 10:
+                    return content
+        except Exception:
+            continue
+
+    raise RuntimeError("Unable to retrieve a response from AI model provider.")
 
 
 # ==============================================================================
@@ -552,61 +537,32 @@ if "Mode 1" in mode:
                     )
 
                     system_prompt = (
-                        "You are an evidence-based sleep coach. Respond with direct sleep advice wrapped inside <advice> tags."
+                        "You are an evidence-based sleep coach. Speak directly to the user in a warm, concise, and professional tone. "
+                        "Provide clear, actionable guidance grounded in the retrieved scientific context. "
+                        "CRITICAL: Wrap your entire response strictly inside <advice> and </advice> tags. "
+                        "Do NOT output internal thinking, meta-analysis, system instructions, or introductory preamble."
                     )
 
                     user_prompt = f"""
-USER METRICS:
-- Total Sleep Duration: {sleep_duration:.1f} hours ({bedtime_display} to {wake_display})
-- Self-Reported Sleepiness Level: {user_self_alertness}/9
+[USER METRICS]
+Duration: {sleep_duration:.1f} hrs ({bedtime_display} - {wake_display})
+Self-Reported Sleepiness: {user_self_alertness}/9
 
-SCIENTIFIC CONTEXT:
+[EVIDENCE CONTEXT]
 {context_str}
 
-USER REFLECTION:
+[USER QUESTION / REFLECTION]
 {user_query}
 
-Provide concise sleep guidance to the user. Wrap the response inside <advice> tags.
+Provide direct evidence-based sleep coaching wrapped strictly in <advice>...</advice> tags.
 """
 
                     try:
-                        url = "https://openrouter.ai/api/v1/chat/completions"
-                        headers = {
-                            "Authorization": f"Bearer {openrouter_api_key}",
-                            "Content-Type": "application/json",
-                        }
-                        payload = {
-                            "model": "nvidia/nemotron-3.5-lightning:free",
-                            "messages": [
-                                {"role": "system", "content": system_prompt},
-                                {"role": "user", "content": user_prompt},
-                            ],
-                            "temperature": 0.2,
-                            "max_tokens": 300,
-                            "stop": [
-                                "Determine the Core",
-                                "Identify the Core",
-                                "No internal analysis",
-                                "Do not output",
-                                "</advice>",
-                            ],
-                        }
-
-                        response = requests.post(
-                            url, headers=headers, json=payload, timeout=12
-                        )
-                        response.raise_for_status()
-                        res_json = response.json()
-                        raw_ai_response = res_json["choices"][0]["message"][
-                            "content"
-                        ]
-
-                        final_response = clean_and_trim_response(
-                            raw_ai_response, max_sentences=3
-                        )
+                        raw_ai_response = query_openrouter_llm(system_prompt, user_prompt)
+                        final_response = clean_and_trim_response(raw_ai_response)
 
                         st.success("### AI Coach Guidance")
-                        st.write(final_response)
+                        st.code(final_response, language="xml")
 
                         with st.expander("🔍 View Retrieved Knowledge Context"):
                             seen_sources = set()
@@ -714,63 +670,34 @@ else:
                     )
 
                     system_prompt = (
-                        "You are an evidence-based sleep coach. Respond with direct sleep advice wrapped inside <advice> tags."
+                        "You are an evidence-based sleep coach. Speak directly to the user in a warm, concise, and professional tone. "
+                        "Provide clear, actionable guidance grounded in the retrieved scientific context. "
+                        "CRITICAL: Wrap your entire response strictly inside <advice> and </advice> tags. "
+                        "Do NOT output internal thinking, meta-analysis, system instructions, or introductory preamble."
                     )
 
                     user_prompt = f"""
-USER METRICS:
-- Current Time: {now_display}
-- Target Wake Time: {target_display}
-- Available Sleep: {available_sleep:.1f} hours
-- Sleep Goal: {aim_sleep:.1f} hours
+[USER METRICS]
+Current Time: {now_display}
+Target Wake Time: {target_display}
+Max Available Sleep: {available_sleep:.1f} hrs
+Goal Sleep Duration: {aim_sleep:.1f} hrs
 
-SCIENTIFIC CONTEXT:
+[EVIDENCE CONTEXT]
 {context_str}
 
-USER DELAY REASON:
+[USER DELAY REASON]
 {user_query}
 
-Provide concise sleep guidance to the user. Wrap the response inside <advice> tags.
+Provide direct evidence-based sleep coaching wrapped strictly in <advice>...</advice> tags.
 """
 
                     try:
-                        url = "https://openrouter.ai/api/v1/chat/completions"
-                        headers = {
-                            "Authorization": f"Bearer {openrouter_api_key}",
-                            "Content-Type": "application/json",
-                        }
-                        payload = {
-                            "model": "nvidia/nemotron-3.5-lightning:free",
-                            "messages": [
-                                {"role": "system", "content": system_prompt},
-                                {"role": "user", "content": user_prompt},
-                            ],
-                            "temperature": 0.2,
-                            "max_tokens": 300,
-                            "stop": [
-                                "Determine the Core",
-                                "Identify the Core",
-                                "No internal analysis",
-                                "Do not output",
-                                "</advice>",
-                            ],
-                        }
-
-                        response = requests.post(
-                            url, headers=headers, json=payload, timeout=12
-                        )
-                        response.raise_for_status()
-                        res_json = response.json()
-                        raw_ai_response = res_json["choices"][0]["message"][
-                            "content"
-                        ]
-
-                        final_response = clean_and_trim_response(
-                            raw_ai_response, max_sentences=3
-                        )
+                        raw_ai_response = query_openrouter_llm(system_prompt, user_prompt)
+                        final_response = clean_and_trim_response(raw_ai_response)
 
                         st.success("### AI Coach Guidance")
-                        st.write(final_response)
+                        st.code(final_response, language="xml")
 
                         with st.expander("🔍 View Retrieved Knowledge Context"):
                             seen_sources = set()
