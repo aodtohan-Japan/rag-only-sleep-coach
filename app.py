@@ -503,7 +503,7 @@ SCIENTIFIC CONTEXT:
 USER REFLECTION:
 {user_query}
 
-Provide concise, personalized advice directly addressing their metrics and context. Enclose your output strictly inside <advice>...</advice> tags.
+Provide concise, personalized advice directly addressing their metrics and context. Enclose your output strictly inside <advice>...</advice> tags. Do not display your thinking process. Produce a 3-sentence answer.
 """
 
                     try:
@@ -660,7 +660,7 @@ SCIENTIFIC CONTEXT:
 USER DELAY REASON:
 {user_query}
 
-Provide concise advice directly addressing their rationale. Wrap output strictly inside <advice>...</advice> tags.
+Provide concise advice directly addressing their rationale. Wrap output strictly inside <advice>...</advice> tags. Do not display your thinking process. Produce a 3-sentence answer.
 """
 
                     try:
