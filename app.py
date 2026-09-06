@@ -177,11 +177,19 @@ def load_rag_artifact():
     base_dir = os.path.dirname(os.path.abspath(__file__))
     file_path = os.path.join(base_dir, "lightweight_rag_components.pkl")
 
-    # Download raw binary file if it doesn't exist locally
+    # Force re-download if file is invalid or missing
     if not os.path.exists(file_path):
         with st.spinner("Downloading RAG Knowledge Base from GitHub Release..."):
+            headers = {
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)",
+                "Accept": "application/octet-stream",
+            }
             response = requests.get(
-                RELEASE_DOWNLOAD_URL, allow_redirects=True, stream=True
+                RELEASE_DOWNLOAD_URL,
+                headers=headers,
+                allow_redirects=True,
+                stream=True,
+                timeout=30,
             )
             response.raise_for_status()
 
@@ -195,8 +203,11 @@ def load_rag_artifact():
 
     # Validate that the file payload starts with valid pickle magic bytes
     if not payload.startswith(PICKLE_MAGIC_BYTES):
+        if os.path.exists(file_path):
+            os.remove(file_path)
         raise ValueError(
-            "Downloaded file payload does not start with valid Python pickle magic bytes."
+            f"Downloaded payload is not a valid pickle file (received header: {payload[:20]!r}). "
+            "Please ensure the repository/release asset is public."
         )
 
     rag_payload = pickle.loads(payload)
