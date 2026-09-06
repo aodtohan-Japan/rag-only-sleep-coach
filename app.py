@@ -334,37 +334,26 @@ def render_time_picker(
 
 
 def clean_and_trim_response(raw_text: str, max_sentences: int = 3) -> str:
-    """Isolates core advice text, purges CoT artifacts and echoed prompt directives."""
+    """Isolates core advice text, purges CoT artifacts, planning headers, and metadata lines."""
     if not raw_text:
         return "No response generated. Please try again."
 
     cleaned = raw_text.strip()
 
-    # Priority 1: Match content enclosed in <advice> tags (handles unclosed tags gracefully)
+    # Priority 1: Match content inside <advice> tags if present
     advice_match = re.search(
         r"<advice>(.*?)(?:</advice>|\Z)", cleaned, re.DOTALL | re.IGNORECASE
     )
     if advice_match and advice_match.group(1).strip():
         cleaned = advice_match.group(1).strip()
     else:
-        # Priority 2: Scrub numbered planning steps (e.g., "2. Determine the Core Message:")
+        # Priority 2: Strip planning sections or header blocks
         cleaned = re.sub(
-            r"\d+\.\s*(?:Determine the Core Message|Analyze User Input|Formulate Advice|Evaluate Constraints|Scientific Context)[^\n]*",
+            r"(?i)^(?:Determine the Core Message|Analyze User Input|Evaluate Constraints|Scientific Context|Thinking Process|Thought Process):.*?(?=\n\n|\Z)",
             "",
             cleaned,
-            flags=re.IGNORECASE,
+            flags=re.DOTALL,
         )
-
-        # Priority 3: Strip greedy CoT header prefixes
-        cot_prefixes = [
-            r"(?i)^.*?Here'?s a thinking process:?\s*",
-            r"(?i)^.*?Analyze User Input:?\s*",
-            r"(?i)^.*?Thinking Process:?\s*",
-            r"(?i)^.*?Thought Process:?\s*",
-            r"(?i)^.*?Formulate Advice:?\s*",
-        ]
-        for pattern in cot_prefixes:
-            cleaned = re.sub(pattern, "", cleaned, flags=re.DOTALL)
 
         # Remove residual XML/HTML tags
         cleaned = re.sub(
@@ -374,46 +363,43 @@ def clean_and_trim_response(raw_text: str, max_sentences: int = 3) -> str:
             flags=re.IGNORECASE,
         )
 
-        # Filter out planner key-value metadata lines and tag remnants
-        lines = []
+        # Line-by-line filtering of metadata lines, bullet lists of raw parameters, or prompt fragments
+        filtered_lines = []
         for line in cleaned.split("\n"):
             line_str = line.strip()
             if not line_str:
                 continue
-            # Skip lines matching key metadata patterns
+
+            # Skip lines matching key analytical patterns or prompt leaks
             if re.match(
-                r"^\s*(?:tags\.?|Current Time|Target Wake|Available Sleep|Sleep Goal|User Delay Reason|Constraints|Scientific Context|Determine the Core Message|User is awake|Needs to wake):",
+                r"^\s*(?:tags\.?|Determine the Core Message|Current Time|Target Wake|Available Sleep|Sleep Goal|User Delay Reason|Constraints|Scientific Context|User is awake|Needs to wake|It's \d+ [AP]M|User has work|Available:):",
                 line_str,
                 re.IGNORECASE,
             ):
                 continue
-            # Skip lines that are just raw metadata observations
-            if re.match(r"^User is awake at.*", line_str, re.IGNORECASE):
+
+            # Skip bullet points summarizing facts instead of coaching
+            if re.match(r"^\s*[\-\*•]\s*(?:It's \d+|Available:|User|Goal:)", line_str, re.IGNORECASE):
                 continue
-            lines.append(line_str)
 
-        cleaned = " ".join(lines).strip()
+            filtered_lines.append(line_str)
 
-    # Priority 4: Remove remaining echoed instruction phrases or tag remnants
-    prompt_echos = [
-        r"(?i)^and end with\s*",
-        r"(?i)^start your output immediately with\s*",
-        r"(?i)^output only the response\s*",
-        r"(?i)^tags\.?\s*",
-    ]
-    for echo in prompt_echos:
-        cleaned = re.sub(echo, "", cleaned).strip()
+        cleaned = " ".join(filtered_lines).strip()
 
-    # Priority 5: Clean residual list markers / bullet points
-    cleaned = re.sub(r"^\s*[\*\-\•\d\.]+\s*", "", cleaned).strip()
+    # Priority 3: Locate first actual conversational sentence addressed to the user
+    conversational_match = re.search(
+        r"\b(?:You|While|Getting|Prioritizing|Sleep|To|If|Although|Since|It is|I understand|Completing)\b.*",
+        cleaned,
+        re.DOTALL | re.IGNORECASE,
+    )
+    if conversational_match:
+        cleaned = conversational_match.group(0).strip()
 
-    # Priority 6: Enforce strict sentence cap on standard sentence delimiters
+    # Priority 4: Enforce sentence limit
     sentences = re.split(r"(?<=[.!?])\s+", cleaned)
-
-    # Filter out any non-conversational leftover sentence fragments
     valid_sentences = [
-        s for s in sentences
-        if s and not s.lower().startswith("tags") and len(s.split()) > 3
+        s.strip() for s in sentences
+        if len(s.strip().split()) > 3 and not s.strip().lower().startswith("determine")
     ]
 
     if valid_sentences:
@@ -544,8 +530,8 @@ if "Mode 1" in mode:
                     )
 
                     system_prompt = (
-                        "You are an evidence-based sleep coach. Provide actionable, supportive sleep advice in 2 to 3 sentences. "
-                        "Do not include meta-commentary or reasoning."
+                        "You are an evidence-based sleep coach. Speak directly to the user in 2 to 3 sentences. "
+                        "Do not output internal analysis, headings, steps, or reasoning. Output only the advice inside <advice> tags."
                     )
 
                     user_prompt = f"""
@@ -559,7 +545,7 @@ SCIENTIFIC CONTEXT:
 USER REFLECTION:
 {user_query}
 
-Output your advice inside <advice> tags. Example: <advice>Your text here.</advice>
+Respond directly to the user inside <advice> tags.
 """
 
                     try:
@@ -698,8 +684,8 @@ else:
                     )
 
                     system_prompt = (
-                        "You are an evidence-based sleep coach. Provide direct, persuasive advice in 2 to 3 sentences. "
-                        "Do not include meta-commentary or reasoning."
+                        "You are an evidence-based sleep coach. Speak directly to the user in 2 to 3 sentences. "
+                        "Do not output internal analysis, headings, steps, or reasoning. Output only the advice inside <advice> tags."
                     )
 
                     user_prompt = f"""
@@ -715,7 +701,7 @@ SCIENTIFIC CONTEXT:
 USER DELAY REASON:
 {user_query}
 
-Output your advice inside <advice> tags. Example: <advice>Your text here.</advice>
+Respond directly to the user inside <advice> tags.
 """
 
                     try:
