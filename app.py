@@ -498,7 +498,7 @@ if "Mode 1" in mode:
         "SUBMIT RESPONSE to Generate Personalized Feedback", key="submit_mode_1"
     ):
         if not user_query.strip():
-            st.error("⚠️ **Input Required:** Please type a question or share a brief reflection.")
+            st.error("⚠️ **Input Required:** Please type a question.")
         else:
             t_bed = datetime(2026, 1, 1, bed_hr, bed_min)
             t_wake = datetime(2026, 1, 1, wake_hr, wake_min)
@@ -615,7 +615,7 @@ else:
     st.markdown(
         f"""
     <div style="background-color: {card_bg_purple}; border: 2px solid {card_border}; border-radius: 28px; padding: 24px; margin-bottom: 25px;">
-        <div class="card-title">How much sleep are you aiming for?</div>
+        <div class="card-title">How much sleep are you aiming for? (7-9 hours of sleep is recommended; below 7 hours means sleep deprivation)</div>
     </div>
     """,
         unsafe_allow_html=True,
@@ -633,7 +633,7 @@ else:
     st.markdown(
         f"""
     <div style="background-color: {card_bg_slate}; border: 2px solid {card_border}; border-radius: 28px; padding: 24px; margin-bottom: 15px;">
-        <div class="card-title">(REQUIRED) Type in your rationale to delay sleep tonight</div>
+        <div class="card-title">(REQUIRED) Type in your rationale to delay sleep tonight (i.e. Why are you putting off sleep?)</div>
     </div>
     """,
         unsafe_allow_html=True,
