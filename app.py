@@ -1,7 +1,9 @@
+import gzip
 import io
 import os
 import pickle
 import re
+import zlib
 from collections import Counter
 from datetime import datetime, timedelta
 import numpy as np
@@ -172,17 +174,37 @@ RELEASE_DOWNLOAD_URL = "https://github.com/aodtohan-Japan/rag-only-sleep-coach/r
 PICKLE_MAGIC_BYTES = (b"\x80\x02", b"\x80\x03", b"\x80\x04", b"\x80\x05")
 
 
+def decompress_if_needed(data: bytes) -> bytes:
+    """Decompresses zlib/gzip data if magic pickle bytes are missing."""
+    if data.startswith(PICKLE_MAGIC_BYTES):
+        return data
+
+    # Check for zlib header (0x78)
+    if data.startswith(b"\x78"):
+        try:
+            return zlib.decompress(data)
+        except Exception:
+            pass
+
+    # Check for gzip header
+    try:
+        return gzip.decompress(data)
+    except Exception:
+        pass
+
+    return data
+
+
 @st.cache_resource
 def load_rag_artifact():
     base_dir = os.path.dirname(os.path.abspath(__file__))
     file_path = os.path.join(base_dir, "lightweight_rag_components.pkl")
 
-    # Force re-download if file is invalid or missing
     if not os.path.exists(file_path):
         with st.spinner("Downloading RAG Knowledge Base from GitHub Release..."):
             headers = {
                 "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)",
-                "Accept": "application/octet-stream",
+                "Accept-Encoding": "identity",  # Request uncompressed transfer
             }
             response = requests.get(
                 RELEASE_DOWNLOAD_URL,
@@ -197,11 +219,13 @@ def load_rag_artifact():
                 for chunk in response.iter_content(chunk_size=8192):
                     f.write(chunk)
 
-    # Read binary payload to verify pickle header
     with open(file_path, "rb") as f:
         payload = f.read()
 
-    # Validate that the file payload starts with valid pickle magic bytes
+    # Attempt decompression if needed
+    payload = decompress_if_needed(payload)
+
+    # Validate pickle header
     if not payload.startswith(PICKLE_MAGIC_BYTES):
         if os.path.exists(file_path):
             os.remove(file_path)
@@ -210,8 +234,7 @@ def load_rag_artifact():
             "Please ensure the repository/release asset is public."
         )
 
-    rag_payload = pickle.loads(payload)
-    return rag_payload
+    return pickle.loads(payload)
 
 
 try:
