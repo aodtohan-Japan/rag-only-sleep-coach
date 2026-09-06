@@ -542,6 +542,7 @@ USER METRICS:
 - Self-Reported Alertness/Sleepiness Level: {user_self_alertness}/9 (1 = Extremely Alert, 9 = Extremely Sleepy)
 
 Directly acknowledge their logged sleep duration and self-reported alertness score. Provide evidence-based advice tailored to their subjective feeling and reflection using the scientific context below.
+Write a supportive answer in maximum 3 sentences.
 
 CONTEXT:
 {context_str}
@@ -702,6 +703,7 @@ USER METRICS:
 - User's Goal Sleep: {aim_sleep} hours
 
 Address their delay rationale directly while contrasting their remaining available sleep ({available_sleep:.1f} hrs) against their target sleep goal ({aim_sleep} hrs). Provide supportive, persuasive advice in maximum 3 sentences based on the scientific context below.
+Write a supportive answer in maximum 3 sentences.
 
 CONTEXT:
 {context_str}
