@@ -334,64 +334,59 @@ def render_time_picker(
 
 
 def clean_and_trim_response(raw_text: str, max_sentences: int = 3) -> str:
-    """Aggressively strips internal reasoning, planning blocks, bullet markers, and enforces a strict sentence limit."""
+    """Robustly isolates advice blocks and purges truncated CoT/reasoning prefix traces."""
     if not raw_text:
         return "No response generated. Please try again."
 
     cleaned = raw_text.strip()
 
-    # Step 1: Tag-First Extraction - If <advice>...</advice> exists, isolate that exact segment.
+    # Priority 1: Match content enclosed in <advice> tags (handles non-closed tags gracefully)
     advice_match = re.search(
-        r"<advice>(.*?)</advice>", cleaned, re.DOTALL | re.IGNORECASE
+        r"<advice>(.*?)(?:</advice>|\Z)", cleaned, re.DOTALL | re.IGNORECASE
     )
     if advice_match and advice_match.group(1).strip():
         cleaned = advice_match.group(1).strip()
     else:
-        # Step 2: Block & CoT Removal - Purge explicit reasoning/thinking blocks
-        cleaned = re.sub(
-            r"<(think|thought|reasoning)>.*?</\1>",
-            "",
-            cleaned,
-            flags=re.DOTALL | re.IGNORECASE,
-        )
-
-        CoT_patterns = [
-            r"(?i)here'?s a thinking process:.*?(?=\n\n|\Z)",
-            r"(?i)analyze user input:.*?(?=\n\n|\Z)",
-            r"(?i)calculate sleep math:.*?(?=\n\n|\Z)",
-            r"(?i)formulate advice:.*?(?=\n\n|\Z)",
-            r"(?i)identify key constraints:.*?(?=\n\n|\Z)",
-            r"(?i)key points to hit:.*?(?=\n\n|\Z)",
-            r"(?i)mental refinement:.*?(?=\n\n|\Z)",
-            r"(?i)thinking process:.*?(?=\n\n|\Z)",
+        # Priority 2: If model omitted tags, strip CoT header prefixes greedily
+        cot_prefixes = [
+            r"(?i)^.*?Here'?s a thinking process:?\s*",
+            r"(?i)^.*?Analyze User Input:?\s*",
+            r"(?i)^.*?Thinking Process:?\s*",
+            r"(?i)^.*?Thought Process:?\s*",
+            r"(?i)^.*?Formulate Advice:?\s*",
         ]
-
-        for pattern in CoT_patterns:
+        for pattern in cot_prefixes:
             cleaned = re.sub(pattern, "", cleaned, flags=re.DOTALL)
 
-        cleaned = re.sub(r"</?advice>", "", cleaned, flags=re.IGNORECASE)
+        # Remove residual XML/HTML tags
+        cleaned = re.sub(
+            r"</?(?:advice|think|thought|reasoning)>",
+            "",
+            cleaned,
+            flags=re.IGNORECASE,
+        )
 
-        # Line-by-Line Filtering for planner lines
+        # Filter out planner/key-value metadata lines
         lines = [
             line
             for line in cleaned.split("\n")
             if not re.match(
-                r"^\s*(Current|Wake|Total available|Available Sleep|Goal|Role|Output Format|Must|No extra|Draft|Analysis|Sleep Goal|User Delay Reason):",
+                r"^\s*(Current Time|Target Wake|Available Sleep|Sleep Goal|User Delay Reason|Constraints|Scientific Context|Determine the Core Message):",
                 line,
                 re.IGNORECASE,
             )
         ]
         cleaned = "\n".join(lines).strip()
 
-    # Step 3: Strip leading bullet points or numbered list markers
+    # Priority 3: Clean list markers / bullet points
     cleaned = re.sub(r"^\s*[\*\-\•\d\.]+\s*", "", cleaned).strip()
 
-    # Step 4: Truncate strictly to the designated maximum sentence limit
+    # Priority 4: Enforce strict sentence cap
     sentences = re.split(r"(?<=[.!?])\s+", cleaned)
     if len(sentences) > max_sentences:
         return " ".join(sentences[:max_sentences])
 
-    return cleaned if cleaned else raw_text.strip()
+    return cleaned if cleaned else "Please try submitting your reflection again."
 
 
 # ==============================================================================
@@ -516,10 +511,9 @@ if "Mode 1" in mode:
                     )
 
                     system_prompt = (
-                        "You are an evidence-based sleep coach. Provide clear, empathetic, direct actionable "
-                        "guidance in 2 to 3 sentences based on the user's data and context. "
-                        "Do NOT include any thinking process, reasoning, scratchpad notes, or meta-commentary in your output. "
-                        "IMPORTANT: Always wrap your final user-facing response strictly inside <advice></advice> tags."
+                        "You are an evidence-based sleep coach. Provide direct, persuasive advice in 2 to 3 sentences. "
+                        "Do NOT include any reasoning, planning, or scratchpad notes. "
+                        "CRITICAL: Start your output IMMEDIATELY with <advice> and end with </advice>."
                     )
 
                     user_prompt = f"""
@@ -533,7 +527,7 @@ SCIENTIFIC CONTEXT:
 USER REFLECTION:
 {user_query}
 
-Provide concise, personalized advice directly addressing their metrics and context. Output ONLY the response enclosed inside <advice>...</advice> tags without any explanation or thought process.
+Provide concise, personalized advice directly addressing their metrics and context. Start your output IMMEDIATELY with <advice> and end with </advice>.
 """
 
                     try:
@@ -672,10 +666,9 @@ else:
                     )
 
                     system_prompt = (
-                        "You are an accountability sleep coach helping with bedtime procrastination. "
-                        "Provide direct, persuasive advice in 2 to 3 sentences contrasting remaining sleep time against their goal. "
-                        "Do NOT include any thinking process, internal reasoning, planning steps, or meta-commentary in your output. "
-                        "IMPORTANT: Always wrap output strictly inside <advice></advice> tags."
+                        "You are an evidence-based sleep coach. Provide direct, persuasive advice in 2 to 3 sentences. "
+                        "Do NOT include any reasoning, planning, or scratchpad notes. "
+                        "CRITICAL: Start your output IMMEDIATELY with <advice> and end with </advice>."
                     )
 
                     user_prompt = f"""
@@ -691,7 +684,7 @@ SCIENTIFIC CONTEXT:
 USER DELAY REASON:
 {user_query}
 
-Provide concise advice directly addressing their rationale. Output ONLY the response enclosed inside <advice>...</advice> tags without any explanation or thought process.
+Provide concise advice directly addressing their rationale contrasting remaining sleep time against their goal. Start your output IMMEDIATELY with <advice> and end with </advice>.
 """
 
                     try:
