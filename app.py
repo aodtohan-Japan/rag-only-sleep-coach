@@ -498,7 +498,7 @@ if "Mode 1" in mode:
         "SUBMIT RESPONSE to Generate Personalized Feedback", key="submit_mode_1"
     ):
         if not user_query.strip():
-            st.error("⚠️ **Input Required:** Please type a question.")
+            st.error("⚠️ **Input Required:**  Please type a question or reflection in the box above before submitting.")
         else:
             t_bed = datetime(2026, 1, 1, bed_hr, bed_min)
             t_wake = datetime(2026, 1, 1, wake_hr, wake_min)
@@ -650,7 +650,7 @@ else:
         "SUBMIT RESPONSE to Generate Personalized Feedback", key="submit_mode_2"
     ):
         if not user_query.strip():
-            st.error("⚠️ **Input Required:** Please type your rationale.")
+            st.error("⚠️ **Input Required:** Please type your rationale in the box above before submitting.")
         else:
             t_now = datetime(2026, 1, 1, now_hr, now_min)
             t_wake = datetime(2026, 1, 1, target_hr, target_min)
