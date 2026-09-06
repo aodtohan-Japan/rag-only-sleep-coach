@@ -168,7 +168,7 @@ else:
 # ==============================================================================
 # LOAD RAG KNOWLEDGE BASE (Auto-downloads raw binary from GitHub Releases)
 # ==============================================================================
-RELEASE_DOWNLOAD_URL = "https://github.com/aodtohan-Japan/rag-sleep-coach/releases/download/v1.0/lightweight_rag_components.pkl"
+RELEASE_DOWNLOAD_URL = "https://github.com/aodtohan-Japan/rag-only-sleep-coach/releases/download/v1.0/lightweight_rag_components.pkl"
 PICKLE_MAGIC_BYTES = (b"\x80\x02", b"\x80\x03", b"\x80\x04", b"\x80\x05")
 
 
