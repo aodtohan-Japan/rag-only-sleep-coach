@@ -240,15 +240,31 @@ def clean_and_trim_response(raw_text: str) -> str:
     if not raw_text:
         return ""
 
-    # Strip tags/thinking blocks if present
+    # Strip out explicit thinking tags if present
     cleaned = re.sub(r"<(think|reasoning|thought|scratchpad)>.*?</\1>", "", raw_text, flags=re.DOTALL | re.IGNORECASE).strip()
     
-    match = re.search(r"<advice>(.*?)</advice>", cleaned, re.DOTALL | re.IGNORECASE)
-    if match and match.group(1).strip():
-        cleaned = match.group(1).strip()
-    else:
-        cleaned = re.sub(r"</?advice>", "", cleaned, flags=re.IGNORECASE).strip()
+    # Aggressively filter out lines matching reasoning trace patterns
+    lines = cleaned.split("\n")
+    valid_lines = []
+    
+    for line in lines:
+        l_lower = line.lower().strip()
+        if any(term in l_lower for term in ["thinking process", "analyze the request", "user wants me", "critical rule:", "constraints:", "goal:"]):
+            continue
+        if l_lower.startswith("-") and ("user" in l_lower or "rule" in l_lower or "output" in l_lower or "coach" in l_lower):
+            continue
+        valid_lines.append(line)
+        
+    cleaned = "\n".join(valid_lines).strip()
 
+    # If the response is broken into blocks/paragraphs, pick the final block if the top contains meta analysis
+    blocks = [b.strip() for b in cleaned.split("\n\n") if b.strip()]
+    if len(blocks) > 1:
+        last_block = blocks[-1]
+        if not any(term in last_block.lower() for term in ["thinking process", "analyze the request", "user wants me"]):
+            cleaned = last_block
+
+    # Final cleanup of any lingering preambles
     preambles = [r"^Draft \d+:\s*", r"^Here'?s a response:\s*", r"^Here is the advice:\s*", r"^Advice:\s*", r"^AI Coach Guidance:\s*"]
     for pattern in preambles:
         cleaned = re.sub(pattern, "", cleaned, flags=re.IGNORECASE).strip()
@@ -312,27 +328,16 @@ if "Mode 1" in mode:
                     top_matches = search_raw_text_chunks(user_query, rag_chunks, top_k=3)
                     context_str = "\n\n".join([f"Source ({m[2]}): {m[1]}" for m in top_matches])
 
-                    system_prompt = (
-                        "You are an evidence-based sleep coach. CRITICAL: Output ONLY the final advice in 2 to 3 sentences. "
-                        "DO NOT include any thinking process, reasoning steps, or meta-talk."
-                    )
-                    user_prompt = f"""STRICT RULE: Write 1 to 3 sentences maximum. Do not output any thinking steps.
-
-USER METRICS:
+                    system_prompt = "You are an evidence-based sleep coach. Provide clear, empathetic, direct actionable guidance in 2 to 3 sentences based on the user's data and context."
+                    user_prompt = f"""USER METRICS:
 - Total Sleep Duration: {sleep_duration:.1f} hours ({bedtime_display} to {wake_display})
 - Self-Reported Sleepiness Level: {user_self_alertness}/9
 
-USER REFLECTION:
-<reflection>
-{user_query}
-</reflection>
+SCIENTIFIC CONTEXT:{context_str}
 
-SCIENTIFIC CONTEXT:
-<context>
-{context_str}
-</context>
+USER REFLECTION:{user_query}
 
-Provide concise, personalized advice directly addressing their metrics and context."""
+Provide concise, personalized advice directly addressing their metrics and context in maximum 3 sentences."""
 
                     try:
                         url = "https://openrouter.ai/api/v1/chat/completions"
@@ -341,7 +346,7 @@ Provide concise, personalized advice directly addressing their metrics and conte
                             "model": "nvidia/nemotron-3.5-lightning:free",
                             "messages": [{"role": "system", "content": system_prompt}, {"role": "user", "content": user_prompt}],
                             "temperature": 0.0,
-                            "max_tokens": 150,
+                            "max_tokens": 200,
                         }
                         response = requests.post(url, headers=headers, json=payload, timeout=15)
                         response.raise_for_status()
@@ -399,30 +404,18 @@ else:
                     top_matches = search_raw_text_chunks(user_query, rag_chunks, top_k=3)
                     context_str = "\n\n".join([f"Source ({m[2]}): {m[1]}" for m in top_matches])
 
-                    system_prompt = (
-                        "You are an accountability sleep coach helping with bedtime procrastination. "
-                        "CRITICAL: Output ONLY the final advice in 2 to 3 sentences. "
-                        "DO NOT include any thinking process, reasoning steps, or meta-talk."
-                    )
-                    user_prompt = f"""STRICT RULE: Write 1 to 3 sentences maximum. Do not output any thinking steps.
-
-USER METRICS:
+                    system_prompt = "You are an accountability sleep coach helping with bedtime procrastination. Provide direct, persuasive advice in 2 to 3 sentences contrasting remaining sleep time against their goal."
+                    user_prompt = f"""USER METRICS:
 - Current Time: {now_display}
 - Target Wake Time: {target_display}
 - Available Sleep: {available_sleep:.1f} hours
 - Sleep Goal: {aim_sleep:.1f} hours
 
-USER DELAY REASON:
-<delay_reason>
-{user_query}
-</delay_reason>
+SCIENTIFIC CONTEXT:{context_str}
 
-SCIENTIFIC CONTEXT:
-<context>
-{context_str}
-</context>
+USER DELAY REASON:{user_query}
 
-Provide a supportive, concise answer balancing their delay reason against their available sleep."""
+Provide a supportive, concise answer balancing their delay reason against their available sleep in maximum 3 sentences."""
 
                     try:
                         url = "https://openrouter.ai/api/v1/chat/completions"
@@ -431,7 +424,7 @@ Provide a supportive, concise answer balancing their delay reason against their 
                             "model": "nvidia/nemotron-3.5-lightning:free",
                             "messages": [{"role": "system", "content": system_prompt}, {"role": "user", "content": user_prompt}],
                             "temperature": 0.0,
-                            "max_tokens": 150,
+                            "max_tokens": 200,
                         }
                         response = requests.post(url, headers=headers, json=payload, timeout=15)
                         response.raise_for_status()
