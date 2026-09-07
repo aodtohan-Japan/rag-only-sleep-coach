@@ -18,11 +18,9 @@ st.set_page_config(
     page_title="RAG-Only Sleep Coach", page_icon="🌙", layout="wide"
 )
 
-# Initialize dark mode state
 if "dark_mode" not in st.session_state:
     st.session_state["dark_mode"] = False
 
-# Layout Title and Dark Mode Toggle Button side-by-side
 col_title, col_toggle = st.columns([0.8, 0.2])
 
 with col_title:
@@ -32,7 +30,7 @@ with col_title:
     )
 
 with col_toggle:
-    st.write("##")  # Visual spacing alignment
+    st.write("##")
     toggle_label = (
         "☀️ Light Mode" if st.session_state["dark_mode"] else "🌙 Dark Mode"
     )
@@ -40,7 +38,6 @@ with col_toggle:
         st.session_state["dark_mode"] = not st.session_state["dark_mode"]
         st.rerun()
 
-# Dynamic Theme Variables based on Toggle State
 if st.session_state["dark_mode"]:
     bg_color = "#0f172a"
     text_color = "#f8fafc"
@@ -68,17 +65,13 @@ else:
     textarea_border = "#94a3b8"
     select_label_color = "#0f172a"
 
-# Custom CSS Injecting Dynamic Variables
 st.markdown(
     f"""
 <style>
-    /* Global App Background and Text Overrides */
     .stApp {{
         background-color: {bg_color} !important;
         color: {text_color} !important;
     }}
-    
-    /* Radio Header and Label Text Styling */
     div[data-testid="stRadio"] > label {{
         font-size: 22px !important;
         font-weight: 800 !important;
@@ -90,24 +83,18 @@ st.markdown(
         font-weight: 600 !important;
         color: {text_color} !important;
     }}
-
-    /* Selectbox Field Labels (Period, Hour, Minute) Styling */
     div[data-testid="stSelectbox"] label,
     div[data-testid="stSelectbox"] label p {{
         font-size: 16px !important;
         font-weight: 700 !important;
         color: {select_label_color} !important;
     }}
-
-    /* Question Title Styling for HTML wrappers */
     .card-title {{
         font-size: 1.25rem;
         font-weight: 700;
         margin-bottom: 0px;
         color: {card_title_color} !important;
     }}
-
-    /* Target Streamlit Slider Value and Min/Max Endpoint Numbers */
     div[data-testid="stSlider"] div[data-testid="stTickBarMin"],
     div[data-testid="stSlider"] div[data-testid="stTickBarMax"],
     div[data-testid="stSlider"] [data-testid="stMarkdownContainer"] p,
@@ -116,14 +103,10 @@ st.markdown(
         font-weight: 700 !important;
         color: {text_color} !important;
     }}
-
-    /* Enlarged floating current value label above the slider thumb */
     div[data-testid="stSlider"] div[role="slider"] {{
         font-size: 18px !important;
         font-weight: 800 !important;
     }}
-
-    /* Text Area Input Styling with Visible Lined Border */
     div[data-testid="stTextArea"] textarea {{
         font-size: 16px !important;
         background-color: {textarea_bg} !important;
@@ -131,12 +114,6 @@ st.markdown(
         border: 2px solid {textarea_border} !important;
         border-radius: 8px !important;
     }}
-    div[data-testid="stTextArea"] textarea:focus {{
-        border-color: #3b82f6 !important;
-        box-shadow: 0 0 0 1px #3b82f6 !important;
-    }}
-
-    /* Custom Prominent Dark Blue Button Styling */
     div.stButton > button {{
         background-color: #1e40af !important;
         color: #ffffff !important;
@@ -146,10 +123,7 @@ st.markdown(
         padding: 12px 24px !important;
         border: none !important;
         box-shadow: 0px 4px 10px rgba(0, 0, 0, 0.15) !important;
-        transition: all 0.2s ease-in-out !important;
     }}
-
-    /* Hover effect for submit buttons */
     div.stButton > button:hover {{
         background-color: #1d4ed8 !important;
         color: #ffffff !important;
@@ -161,7 +135,6 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
-# Retrieve API Key securely from Streamlit Secrets
 openrouter_api_key = st.secrets.get("OPENROUTER_API_KEY", None)
 
 if not openrouter_api_key:
@@ -175,24 +148,19 @@ else:
 RELEASE_DOWNLOAD_URL = "https://github.com/aodtohan-Japan/rag-only-sleep-coach/releases/download/v1.0/lightweight_rag_components.pkl"
 PICKLE_MAGIC_BYTES = (b"\x80\x02", b"\x80\x03", b"\x80\x04", b"\x80\x05")
 
-
 def decompress_if_needed(data: bytes) -> bytes:
     if data.startswith(PICKLE_MAGIC_BYTES):
         return data
-
     if data.startswith(b"\x78"):
         try:
             return zlib.decompress(data)
         except Exception:
             pass
-
     try:
         return gzip.decompress(data)
     except Exception:
         pass
-
     return data
-
 
 @st.cache_resource
 def load_rag_artifact():
@@ -206,14 +174,9 @@ def load_rag_artifact():
                 "Accept-Encoding": "identity",
             }
             response = requests.get(
-                RELEASE_DOWNLOAD_URL,
-                headers=headers,
-                allow_redirects=True,
-                stream=True,
-                timeout=30,
+                RELEASE_DOWNLOAD_URL, headers=headers, allow_redirects=True, stream=True, timeout=30
             )
             response.raise_for_status()
-
             with open(file_path, "wb") as f:
                 for chunk in response.iter_content(chunk_size=8192):
                     f.write(chunk)
@@ -222,193 +185,86 @@ def load_rag_artifact():
         payload = f.read()
 
     payload = decompress_if_needed(payload)
-
     if not payload.startswith(PICKLE_MAGIC_BYTES):
         if os.path.exists(file_path):
             os.remove(file_path)
-        raise ValueError(
-            f"Downloaded payload is not a valid pickle file (received header: {payload[:20]!r})."
-        )
-
+        raise ValueError(f"Downloaded payload is not a valid pickle file.")
     return pickle.loads(payload)
-
 
 try:
     rag_payload = load_rag_artifact()
-
-    if isinstance(rag_payload, dict):
-        rag_chunks = rag_payload.get("chunks", rag_payload.get("documents", []))
-    else:
-        rag_chunks = rag_payload
-
+    rag_chunks = rag_payload.get("chunks", rag_payload.get("documents", [])) if isinstance(rag_payload, dict) else rag_payload
     st.sidebar.success("✅ RAG Knowledge Base Loaded!")
 except Exception as e:
     st.sidebar.error("❌ Knowledge Base Error")
     st.error(f"**Error loading RAG file (`{e}`)**")
     st.stop()
 
-
 # ==============================================================================
-# LIGHTWEIGHT KEYWORD MATCHING ENGINE
+# KEYWORD MATCHING ENGINE & UTILS
 # ==============================================================================
 def search_raw_text_chunks(query, chunks, top_k=3):
-    stopwords = {
-        "i", "me", "my", "myself", "we", "our", "you", "your", "he", "she",
-        "it", "what", "which", "who", "whom", "this", "that", "am", "is", "are",
-        "was", "were", "be", "been", "being", "have", "has", "had", "do", "does",
-        "did", "a", "an", "the", "and", "but", "if", "or", "because", "as",
-        "until", "while", "of", "at", "by", "for", "with", "about", "against",
-        "to", "then",
-    }
-
-    query_tokens = [
-        word
-        for word in re.findall(r"\b\w+\b", query.lower())
-        if word not in stopwords and len(word) > 2
-    ]
-
+    stopwords = {"i", "me", "my", "myself", "we", "our", "you", "your", "he", "she", "it", "what", "which", "who", "whom", "this", "that", "am", "is", "are", "was", "were", "be", "been", "being", "have", "has", "had", "do", "does", "did", "a", "an", "the", "and", "but", "if", "or", "because", "as", "until", "while", "of", "at", "by", "for", "with", "about", "against", "to", "then"}
+    query_tokens = [word for word in re.findall(r"\b\w+\b", query.lower()) if word not in stopwords and len(word) > 2]
     if not query_tokens:
         query_tokens = [w for w in query.lower().split() if len(w) > 2]
 
     scored_chunks = []
-
     for item in chunks:
         text_content = item["text"] if isinstance(item, dict) else str(item)
-        source_doc = (
-            item.get("source", "Sleep Guideline")
-            if isinstance(item, dict)
-            else "Knowledge Base"
-        )
-
+        source_doc = item.get("source", "Sleep Guideline") if isinstance(item, dict) else "Knowledge Base"
         chunk_tokens = re.findall(r"\b\w+\b", text_content.lower())
         chunk_token_counts = Counter(chunk_tokens)
-
-        overlap_score = sum(
-            chunk_token_counts[token]
-            for token in query_tokens
-            if token in chunk_token_counts
-        )
+        overlap_score = sum(chunk_token_counts[token] for token in query_tokens if token in chunk_token_counts)
         scored_chunks.append((overlap_score, text_content, source_doc))
 
     scored_chunks.sort(key=lambda x: x[0], reverse=True)
     return scored_chunks[:top_k]
 
-
-# ==============================================================================
-# HELPER FUNCTIONS
-# ==============================================================================
-def render_time_picker(
-    label_prefix, default_hour=10, default_minute=0, default_period="PM"
-):
+def render_time_picker(label_prefix, default_hour=10, default_minute=0, default_period="PM"):
     col_period, col_hr, col_min = st.columns(3)
-
     with col_period:
-        period = st.selectbox(
-            "Period",
-            ["AM", "PM"],
-            index=0 if default_period == "AM" else 1,
-            key=f"{label_prefix}_period",
-        )
+        period = st.selectbox("Period", ["AM", "PM"], index=0 if default_period == "AM" else 1, key=f"{label_prefix}_period")
     with col_hr:
-        hour_12 = st.selectbox(
-            "Hour",
-            list(range(1, 13)),
-            index=(default_hour - 1) if 1 <= default_hour <= 12 else 9,
-            key=f"{label_prefix}_hour",
-        )
+        hour_12 = st.selectbox("Hour", list(range(1, 13)), index=(default_hour - 1) if 1 <= default_hour <= 12 else 9, key=f"{label_prefix}_hour")
     with col_min:
-        minute = st.selectbox(
-            "Minute",
-            [f"{m:02d}" for m in range(60)],
-            index=default_minute,
-            key=f"{label_prefix}_minute",
-        )
+        minute = st.selectbox("Minute", [f"{m:02d}" for m in range(60)], index=default_minute, key=f"{label_prefix}_minute")
 
-    # Correct 12-hour to 24-hour conversion logic
     if period == "AM":
         hr_24 = 0 if hour_12 == 12 else hour_12
     else:
         hr_24 = 12 if hour_12 == 12 else hour_12 + 12
-
     return hr_24, int(minute), f"{hour_12:02d}:{minute} {period}"
 
-
 def clean_and_trim_response(raw_text: str) -> str:
-    """Robust extraction logic that strips thinking blocks, meta-analysis, and limits to 3 sentences."""
     if not raw_text:
-        return "No response generated. Please try again."
+        return ""
 
-    # Step 1: Strip out potential thought, reasoning, or scratchpad tags
-    cleaned = re.sub(
-        r"<(think|reasoning|thought|scratchpad)>.*?</\1>", "", raw_text, flags=re.DOTALL | re.IGNORECASE
-    ).strip()
-    cleaned = re.sub(r"<(think|reasoning|thought|scratchpad)>.*", "", cleaned, flags=re.DOTALL | re.IGNORECASE).strip()
-
-    # Step 2: Strip common transition markers if model leaks meta-analysis
-    markers = [
-        "Here is the advice:",
-        "Advice:",
-        "AI Coach Guidance:",
-        "Response:",
-        "Draft 3:",
-        "Final Answer:",
-    ]
-    for marker in markers:
-        if marker in cleaned:
-            parts = cleaned.split(marker)
-            cleaned = parts[-1].strip()
-
-    # Fallback line filter for rogue meta-talk/drafting
-    lines = cleaned.split("\n")
-    filtered_lines = []
-    skip_line = False
-    for line in lines:
-        lower_line = line.lower()
-        if any(term in lower_line for term in ["thinking process", "analyze the request", "deconstruct the problem", "draft 1:", "draft 2:"]):
-            skip_line = True
-            continue
-        if skip_line and line.strip() == "":
-            skip_line = False
-            continue
-        if not skip_line:
-            filtered_lines.append(line)
+    # Strip tags if present, otherwise fall back to raw output text
+    cleaned = re.sub(r"<(think|reasoning|thought|scratchpad)>.*?</\1>", "", raw_text, flags=re.DOTALL | re.IGNORECASE).strip()
     
-    cleaned = "\n".join(filtered_lines).strip()
-
-    # Step 3: Extract content from <advice> tags if available
     match = re.search(r"<advice>(.*?)</advice>", cleaned, re.DOTALL | re.IGNORECASE)
     if match and match.group(1).strip():
         cleaned = match.group(1).strip()
     else:
         cleaned = re.sub(r"</?advice>", "", cleaned, flags=re.IGNORECASE).strip()
 
-    # Step 4: Remove standard LLM preamble phrases
-    preambles = [
-        r"^Draft \d+:\s*",
-        r"^Here'?s a response:\s*",
-        r"^Here is the advice:\s*",
-        r"^Advice:\s*",
-        r"^AI Coach Guidance:\s*",
-        r"^Thinking Process:.*?\n",
-    ]
+    # Fallback cleanup of potential preambles
+    preambles = [r"^Draft \d+:\s*", r"^Here'?s a response:\s*", r"^Here is the advice:\s*", r"^Advice:\s*", r"^AI Coach Guidance:\s*"]
     for pattern in preambles:
         cleaned = re.sub(pattern, "", cleaned, flags=re.IGNORECASE).strip()
 
-    # Step 5: Enforce a strict 3-sentence maximum limit programmatically
     sentences = re.split(r'(?<=[.!?])\s+', cleaned)
     if len(sentences) > 3:
         cleaned = " ".join(sentences[:3])
 
     return cleaned if cleaned else raw_text.strip()
 
-
 # ==============================================================================
 # INTERFACE MAIN BODY
 # ==============================================================================
 st.header("AI Sleep Coach")
-st.write(
-    "Grounded in medical knowledge extracted from CDC, NSF, Harvard, and NIH guidelines."
-)
+st.write("Grounded in medical knowledge extracted from CDC, NSF, Harvard, and NIH guidelines.")
 
 mode = st.radio(
     "Select Coaching Strategy Mode:",
@@ -419,84 +275,26 @@ mode = st.radio(
 )
 
 if "Mode 1" in mode:
-    st.info(
-        "💡 **Goal:** Reflect on your previous night's sleep metrics and get personalized feedback to optimize your daytime energy and sleep habits."
-    )
+    st.info("💡 **Goal:** Reflect on your previous night's sleep metrics and get personalized feedback to optimize your daytime energy and sleep habits.")
 else:
-    st.info(
-        "💡 **Goal:** Resolve late-night bedtime procrastination by evaluating the cognitive trade-offs of delaying sleep tonight."
-    )
+    st.info("💡 **Goal:** Resolve late-night bedtime procrastination by evaluating the cognitive trade-offs of delaying sleep tonight.")
 
 st.markdown("---")
 
 if "Mode 1" in mode:
-    st.markdown(
-        f"""
-    <div style="background-color: {card_bg_blue}; border: 2px solid {card_border}; border-radius: 28px; padding: 24px; margin-bottom: 25px;">
-        <div class="card-title">Previous Night Bedtime</div>
-    </div>
-    """,
-        unsafe_allow_html=True,
-    )
-    bed_hr, bed_min, bedtime_display = render_time_picker(
-        "Previous Night Bedtime",
-        default_hour=10,
-        default_minute=0,
-        default_period="PM",
-    )
+    st.markdown(f'<div style="background-color: {card_bg_blue}; border: 2px solid {card_border}; border-radius: 28px; padding: 24px; margin-bottom: 25px;"><div class="card-title">Previous Night Bedtime</div></div>', unsafe_allow_html=True)
+    bed_hr, bed_min, bedtime_display = render_time_picker("Previous Night Bedtime", default_hour=10, default_minute=0, default_period="PM")
 
-    st.markdown(
-        f"""
-    <div style="background-color: {card_bg_green}; border: 2px solid {card_border}; border-radius: 28px; padding: 24px; margin-bottom: 25px;">
-        <div class="card-title">Morning Wake Up Time</div>
-    </div>
-    """,
-        unsafe_allow_html=True,
-    )
-    wake_hr, wake_min, wake_display = render_time_picker(
-        "Morning Wake Up Time",
-        default_hour=7,
-        default_minute=0,
-        default_period="AM",
-    )
+    st.markdown(f'<div style="background-color: {card_bg_green}; border: 2px solid {card_border}; border-radius: 28px; padding: 24px; margin-bottom: 25px;"><div class="card-title">Morning Wake Up Time</div></div>', unsafe_allow_html=True)
+    wake_hr, wake_min, wake_display = render_time_picker("Morning Wake Up Time", default_hour=7, default_minute=0, default_period="AM")
 
-    st.markdown(
-        f"""
-    <div style="background-color: {card_bg_purple}; border: 2px solid {card_border}; border-radius: 28px; padding: 24px; margin-bottom: 25px;">
-        <div class="card-title">Rate your current alertness-sleepiness levels (1 = extremely alert; 9 = extremely sleepy)</div>
-    </div>
-    """,
-        unsafe_allow_html=True,
-    )
+    st.markdown(f'<div style="background-color: {card_bg_purple}; border: 2px solid {card_border}; border-radius: 28px; padding: 24px; margin-bottom: 25px;"><div class="card-title">Rate your current alertness-sleepiness levels (1 = extremely alert; 9 = extremely sleepy)</div></div>', unsafe_allow_html=True)
+    user_self_alertness = st.slider("Rate alertness", min_value=1, max_value=9, value=5, step=1, label_visibility="collapsed")
 
-    user_self_alertness = st.slider(
-        "Rate your current alertness-sleepiness levels (1 = extremely alert; 9 = extremely sleepy)",
-        min_value=1,
-        max_value=9,
-        value=5,
-        step=1,
-        label_visibility="collapsed",
-    )
+    st.markdown(f'<div style="background-color: {card_bg_slate}; border: 2px solid {card_border}; border-radius: 28px; padding: 24px; margin-bottom: 15px;"><div class="card-title">(REQUIRED) Type in your Sleep Question or Check-in Reflection</div></div>', unsafe_allow_html=True)
+    user_query = st.text_area("Reflection", placeholder="Type here...", height=120, label_visibility="collapsed")
 
-    st.markdown(
-        f"""
-    <div style="background-color: {card_bg_slate}; border: 2px solid {card_border}; border-radius: 28px; padding: 24px; margin-bottom: 15px;">
-        <div class="card-title">(REQUIRED) Type in your Sleep Question or Check-in Reflection</div>
-    </div>
-    """,
-        unsafe_allow_html=True,
-    )
-
-    user_query = st.text_area(
-        "(REQUIRED) Type in your Sleep Question or Check-in Reflection",
-        placeholder="Type here...",
-        height=120,
-        label_visibility="collapsed",
-    )
-
-    if st.button(
-        "SUBMIT RESPONSE to Generate Personalized Feedback", key="submit_mode_1"
-    ):
+    if st.button("SUBMIT RESPONSE to Generate Personalized Feedback", key="submit_mode_1"):
         if not user_query.strip():
             st.error("⚠️ **Input Required:** Please type a question or reflection in the box above before submitting.")
         else:
@@ -504,39 +302,21 @@ if "Mode 1" in mode:
             t_wake = datetime(2026, 1, 1, wake_hr, wake_min)
             if t_wake <= t_bed:
                 t_wake += timedelta(days=1)
-
             sleep_duration = (t_wake - t_bed).total_seconds() / 3600.0
 
-            st.info(
-                f"⏱️ **Logged Sleep Duration:** **{sleep_duration:.1f} hrs** ({bedtime_display} to {wake_display}) | "
-                f"**Self-Reported Alertness:** **{user_self_alertness} / 9**"
-            )
+            st.info(f"⏱️ **Logged Sleep Duration:** **{sleep_duration:.1f} hrs** ({bedtime_display} to {wake_display}) | **Self-Reported Alertness:** **{user_self_alertness} / 9**")
 
             if not openrouter_api_key:
                 st.error("API Key missing.")
             else:
                 with st.spinner("Generating advice..."):
-                    top_matches = search_raw_text_chunks(
-                        user_query, rag_chunks, top_k=3
-                    )
-                    context_str = "\n\n".join(
-                        [f"Source ({m[2]}): {m[1]}" for m in top_matches]
-                    )
+                    top_matches = search_raw_text_chunks(user_query, rag_chunks, top_k=3)
+                    context_str = "\n\n".join([f"Source ({m[2]}): {m[1]}" for m in top_matches])
 
-                    system_prompt = (
-                        "You are an evidence-based sleep coach. Provide clear, empathetic, direct actionable "
-                        "guidance in 2 to 3 sentences based on the user's data and context. "
-                        "IMPORTANT: Always wrap output strictly inside <advice></advice> tags."
-                    )
-
-                    user_prompt = f"""
-CRITICAL INSTRUCTION: Output ONLY your final advice in 1 to 3 sentences maximum. Do NOT include any thinking process, reasoning steps, or intros like "Here's a thinking process:".
-
-USER METRICS:
+                    system_prompt = "You are an evidence-based sleep coach. Provide clear, empathetic, direct actionable guidance in 2 to 3 sentences based on the user's data and context."
+                    user_prompt = f"""USER METRICS:
 - Total Sleep Duration: {sleep_duration:.1f} hours ({bedtime_display} to {wake_display})
 - Self-Reported Sleepiness Level: {user_self_alertness}/9
-
-Using the scientific context below, provide concise, personalized advice directly addressing their metrics and context. Write a supportive response in max 3 sentences.
 
 SCIENTIFIC CONTEXT:
 {context_str}
@@ -544,119 +324,55 @@ SCIENTIFIC CONTEXT:
 USER REFLECTION:
 {user_query}
 
-"""
+Provide concise, personalized advice directly addressing their metrics and context in maximum 3 sentences."""
 
                     try:
                         url = "https://openrouter.ai/api/v1/chat/completions"
-                        headers = {
-                            "Authorization": f"Bearer {openrouter_api_key}",
-                            "Content-Type": "application/json",
-                        }
+                        headers = {"Authorization": f"Bearer {openrouter_api_key}", "Content-Type": "application/json"}
                         payload = {
                             "model": "nvidia/nemotron-3.5-lightning:free",
-                            "messages": [
-                                {"role": "system", "content": system_prompt},
-                                {"role": "user", "content": user_prompt},
-                            ],
-                            "temperature": 0.0,
-                            "max_tokens": 120,
-                            "stop": ["Here's a thinking process", "Analyze the Request", "Draft 1:"],
+                            "messages": [{"role": "system", "content": system_prompt}, {"role": "user", "content": user_prompt}],
+                            "temperature": 0.2,
+                            "max_tokens": 200,
                         }
-
-                        response = requests.post(
-                            url, headers=headers, json=payload, timeout=12
-                        )
+                        response = requests.post(url, headers=headers, json=payload, timeout=15)
                         response.raise_for_status()
                         res_json = response.json()
-                        raw_ai_response = res_json["choices"][0]["message"][
-                            "content"
-                        ]
+                        
+                        raw_ai_response = res_json.get("choices", [{}])[0].get("message", {}).get("content", "")
+                        final_response = clean_and_trim_response(raw_ai_response)
 
-                        final_response = clean_and_trim_response(
-                            raw_ai_response
-                        )
+                        if not final_response:
+                            st.error("⚠️ Received an empty response from the model. Raw payload output:")
+                            st.write(res_json)
+                        else:
+                            st.success("### AI Coach Guidance")
+                            st.write(final_response)
 
-                        st.success("### AI Coach Guidance")
-                        st.write(final_response)
-
-                        with st.expander("🔍 View Retrieved Knowledge Context"):
-                            seen_sources = set()
-                            for match in top_matches:
-                                source_name = match[2]
-                                if source_name not in seen_sources:
-                                    st.markdown(f"• **{source_name}**")
-                                    seen_sources.add(source_name)
+                            with st.expander("🔍 View Retrieved Knowledge Context"):
+                                seen_sources = set()
+                                for match in top_matches:
+                                    source_name = match[2]
+                                    if source_name not in seen_sources:
+                                        st.markdown(f"• **{source_name}**")
+                                        seen_sources.add(source_name)
                     except Exception as e:
                         st.error(f"OpenRouter API Error: {e}")
 
 else:
-    st.markdown(
-        f"""
-    <div style="background-color: {card_bg_green}; border: 2px solid {card_border}; border-radius: 28px; padding: 24px; margin-bottom: 25px;">
-        <div class="card-title">What time is it now?</div>
-    </div>
-    """,
-        unsafe_allow_html=True,
-    )
-    now_hr, now_min, now_display = render_time_picker(
-        "What time is it now?",
-        default_hour=11,
-        default_minute=0,
-        default_period="PM",
-    )
+    st.markdown(f'<div style="background-color: {card_bg_green}; border: 2px solid {card_border}; border-radius: 28px; padding: 24px; margin-bottom: 25px;"><div class="card-title">What time is it now?</div></div>', unsafe_allow_html=True)
+    now_hr, now_min, now_display = render_time_picker("What time is it now?", default_hour=11, default_minute=0, default_period="PM")
 
-    st.markdown(
-        f"""
-    <div style="background-color: {card_bg_blue}; border: 2px solid {card_border}; border-radius: 28px; padding: 24px; margin-bottom: 25px;">
-        <div class="card-title">What time are you aiming to get up tomorrow?</div>
-    </div>
-    """,
-        unsafe_allow_html=True,
-    )
-    target_hr, target_min, target_display = render_time_picker(
-        "What time are you aiming to get up tomorrow?",
-        default_hour=7,
-        default_minute=0,
-        default_period="AM",
-    )
+    st.markdown(f'<div style="background-color: {card_bg_blue}; border: 2px solid {card_border}; border-radius: 28px; padding: 24px; margin-bottom: 25px;"><div class="card-title">What time are you aiming to get up tomorrow?</div></div>', unsafe_allow_html=True)
+    target_hr, target_min, target_display = render_time_picker("What time are you aiming to get up tomorrow?", default_hour=7, default_minute=0, default_period="AM")
 
-    st.markdown(
-        f"""
-    <div style="background-color: {card_bg_purple}; border: 2px solid {card_border}; border-radius: 28px; padding: 24px; margin-bottom: 25px;">
-        <div class="card-title">How much sleep are you aiming for? (7-9 hours of sleep is recommended; below 7 hours means sleep deprivation)</div>
-    </div>
-    """,
-        unsafe_allow_html=True,
-    )
+    st.markdown(f'<div style="background-color: {card_bg_purple}; border: 2px solid {card_border}; border-radius: 28px; padding: 24px; margin-bottom: 25px;"><div class="card-title">How much sleep are you aiming for? (7-9 hours recommended)</div></div>', unsafe_allow_html=True)
+    aim_sleep = st.slider("Aim sleep", min_value=0.0, max_value=12.0, value=8.0, step=0.5, label_visibility="collapsed")
 
-    aim_sleep = st.slider(
-        "How much sleep are you aiming for? (7-9 hours of sleep is recommended; below 7 hours means sleep deprivation)",
-        min_value=0.0,
-        max_value=12.0,
-        value=8.0,
-        step=0.5,
-        label_visibility="collapsed",
-    )
+    st.markdown(f'<div style="background-color: {card_bg_slate}; border: 2px solid {card_border}; border-radius: 28px; padding: 24px; margin-bottom: 15px;"><div class="card-title">(REQUIRED) Type in your rationale to delay sleep tonight</div></div>', unsafe_allow_html=True)
+    user_query = st.text_area("Rationale", placeholder="Type here...", height=120, label_visibility="collapsed")
 
-    st.markdown(
-        f"""
-    <div style="background-color: {card_bg_slate}; border: 2px solid {card_border}; border-radius: 28px; padding: 24px; margin-bottom: 15px;">
-        <div class="card-title">(REQUIRED) Type in your rationale to delay sleep tonight (i.e. Why are you putting off sleep?)</div>
-    </div>
-    """,
-        unsafe_allow_html=True,
-    )
-
-    user_query = st.text_area(
-        "(REQUIRED) Type in your rationale to delay sleep tonight (i.e. Why are you putting off sleep?)",
-        placeholder="Type here...",
-        height=120,
-        label_visibility="collapsed",
-    )
-
-    if st.button(
-        "SUBMIT RESPONSE to Generate Personalized Feedback", key="submit_mode_2"
-    ):
+    if st.button("SUBMIT RESPONSE to Generate Personalized Feedback", key="submit_mode_2"):
         if not user_query.strip():
             st.error("⚠️ **Input Required:** Please type your rationale in the box above before submitting.")
         else:
@@ -664,43 +380,23 @@ else:
             t_wake = datetime(2026, 1, 1, target_hr, target_min)
             if t_wake <= t_now:
                 t_wake += timedelta(days=1)
-
             available_sleep = (t_wake - t_now).total_seconds() / 3600.0
 
-            st.info(
-                f"⏱️ **Max Available Sleep Tonight:** **{available_sleep:.1f} hrs** (Target: **{aim_sleep} hrs**)"
-            )
+            st.info(f"⏱️ **Max Available Sleep Tonight:** **{available_sleep:.1f} hrs** (Target: **{aim_sleep} hrs**)")
 
             if not openrouter_api_key:
                 st.error("API Key missing.")
             else:
                 with st.spinner("Generating advice..."):
-                    top_matches = search_raw_text_chunks(
-                        user_query, rag_chunks, top_k=3
-                    )
-                    context_str = "\n\n".join(
-                        [f"Source ({m[2]}): {m[1]}" for m in top_matches]
-                    )
+                    top_matches = search_raw_text_chunks(user_query, rag_chunks, top_k=3)
+                    context_str = "\n\n".join([f"Source ({m[2]}): {m[1]}" for m in top_matches])
 
-                    system_prompt = (
-                        "You are an accountability sleep coach helping with bedtime procrastination. "
-                        "Provide direct, persuasive advice in 2 to 3 sentences contrasting remaining sleep time against their goal. "
-                        "IMPORTANT: Always wrap output strictly inside <advice></advice> tags."
-                    )
-
-                    user_prompt = f"""
-CRITICAL INSTRUCTION: Output ONLY your final advice in 1 to 3 sentences maximum. Do NOT include any thinking process, reasoning steps, or intros like "Here's a thinking process:".
-
-The current time is {now_display}, and the user aims to wake up at {target_display} (available sleep: {available_sleep:.1f} hrs vs target sleep: {aim_sleep} hrs).
-Write a supportive answer in maximum 3 sentences.
-
-USER METRICS:
+                    system_prompt = "You are an accountability sleep coach helping with bedtime procrastination. Provide direct, persuasive advice in 2 to 3 sentences contrasting remaining sleep time against their goal."
+                    user_prompt = f"""USER METRICS:
 - Current Time: {now_display}
 - Target Wake Time: {target_display}
 - Available Sleep: {available_sleep:.1f} hours
 - Sleep Goal: {aim_sleep:.1f} hours
-
-Do not display your thinking process. Write a supportive answer in maximum 3 sentences.
 
 SCIENTIFIC CONTEXT:
 {context_str}
@@ -708,47 +404,37 @@ SCIENTIFIC CONTEXT:
 USER DELAY REASON:
 {user_query}
 
-"""
+Provide a supportive, concise answer balancing their delay reason against their available sleep in maximum 3 sentences."""
 
                     try:
                         url = "https://openrouter.ai/api/v1/chat/completions"
-                        headers = {
-                            "Authorization": f"Bearer {openrouter_api_key}",
-                            "Content-Type": "application/json",
-                        }
+                        headers = {"Authorization": f"Bearer {openrouter_api_key}", "Content-Type": "application/json"}
                         payload = {
                             "model": "nvidia/nemotron-3.5-lightning:free",
-                            "messages": [
-                                {"role": "system", "content": system_prompt},
-                                {"role": "user", "content": user_prompt},
-                            ],
-                            "temperature": 0.0,
-                            "max_tokens": 120,
-                            "stop": ["Here's a thinking process", "Analyze the Request", "Draft 1:"],
+                            "messages": [{"role": "system", "content": system_prompt}, {"role": "user", "content": user_prompt}],
+                            "temperature": 0.2,
+                            "max_tokens": 200,
                         }
-
-                        response = requests.post(
-                            url, headers=headers, json=payload, timeout=12
-                        )
+                        response = requests.post(url, headers=headers, json=payload, timeout=15)
                         response.raise_for_status()
                         res_json = response.json()
-                        raw_ai_response = res_json["choices"][0]["message"][
-                            "content"
-                        ]
 
-                        final_response = clean_and_trim_response(
-                            raw_ai_response
-                        )
+                        raw_ai_response = res_json.get("choices", [{}])[0].get("message", {}).get("content", "")
+                        final_response = clean_and_trim_response(raw_ai_response)
 
-                        st.success("### AI Coach Guidance")
-                        st.write(final_response)
+                        if not final_response:
+                            st.error("⚠️ Received an empty response from the model. Raw payload output:")
+                            st.write(res_json)
+                        else:
+                            st.success("### AI Coach Guidance")
+                            st.write(final_response)
 
-                        with st.expander("🔍 View Retrieved Knowledge Context"):
-                            seen_sources = set()
-                            for match in top_matches:
-                                source_name = match[2]
-                                if source_name not in seen_sources:
-                                    st.markdown(f"• **{source_name}**")
-                                    seen_sources.add(source_name)
+                            with st.expander("🔍 View Retrieved Knowledge Context"):
+                                seen_sources = set()
+                                for match in top_matches:
+                                    source_name = match[2]
+                                    if source_name not in seen_sources:
+                                        st.markdown(f"• **{source_name}**")
+                                        seen_sources.add(source_name)
                     except Exception as e:
                         st.error(f"OpenRouter API Error: {e}")
