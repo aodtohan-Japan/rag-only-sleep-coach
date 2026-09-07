@@ -188,7 +188,7 @@ def load_rag_artifact():
     if not payload.startswith(PICKLE_MAGIC_BYTES):
         if os.path.exists(file_path):
             os.remove(file_path)
-        raise ValueError(f"Downloaded payload is not a valid pickle file.")
+        raise ValueError("Downloaded payload is not a valid pickle file.")
     return pickle.loads(payload)
 
 try:
@@ -240,7 +240,7 @@ def clean_and_trim_response(raw_text: str) -> str:
     if not raw_text:
         return ""
 
-    # Strip tags if present, otherwise fall back to raw output text
+    # Strip tags/thinking blocks if present
     cleaned = re.sub(r"<(think|reasoning|thought|scratchpad)>.*?</\1>", "", raw_text, flags=re.DOTALL | re.IGNORECASE).strip()
     
     match = re.search(r"<advice>(.*?)</advice>", cleaned, re.DOTALL | re.IGNORECASE)
@@ -249,7 +249,6 @@ def clean_and_trim_response(raw_text: str) -> str:
     else:
         cleaned = re.sub(r"</?advice>", "", cleaned, flags=re.IGNORECASE).strip()
 
-    # Fallback cleanup of potential preambles
     preambles = [r"^Draft \d+:\s*", r"^Here'?s a response:\s*", r"^Here is the advice:\s*", r"^Advice:\s*", r"^AI Coach Guidance:\s*"]
     for pattern in preambles:
         cleaned = re.sub(pattern, "", cleaned, flags=re.IGNORECASE).strip()
@@ -313,18 +312,27 @@ if "Mode 1" in mode:
                     top_matches = search_raw_text_chunks(user_query, rag_chunks, top_k=3)
                     context_str = "\n\n".join([f"Source ({m[2]}): {m[1]}" for m in top_matches])
 
-                    system_prompt = "You are an evidence-based sleep coach. Provide clear, empathetic, direct actionable guidance in 2 to 3 sentences based on the user's data and context."
-                    user_prompt = f"""USER METRICS:
+                    system_prompt = (
+                        "You are an evidence-based sleep coach. CRITICAL: Output ONLY the final advice in 2 to 3 sentences. "
+                        "DO NOT include any thinking process, reasoning steps, or meta-talk."
+                    )
+                    user_prompt = f"""STRICT RULE: Write 1 to 3 sentences maximum. Do not output any thinking steps.
+
+USER METRICS:
 - Total Sleep Duration: {sleep_duration:.1f} hours ({bedtime_display} to {wake_display})
 - Self-Reported Sleepiness Level: {user_self_alertness}/9
 
-SCIENTIFIC CONTEXT:
-{context_str}
-
 USER REFLECTION:
+<reflection>
 {user_query}
+</reflection>
 
-Provide concise, personalized advice directly addressing their metrics and context in maximum 3 sentences."""
+SCIENTIFIC CONTEXT:
+<context>
+{context_str}
+</context>
+
+Provide concise, personalized advice directly addressing their metrics and context."""
 
                     try:
                         url = "https://openrouter.ai/api/v1/chat/completions"
@@ -332,8 +340,8 @@ Provide concise, personalized advice directly addressing their metrics and conte
                         payload = {
                             "model": "nvidia/nemotron-3.5-lightning:free",
                             "messages": [{"role": "system", "content": system_prompt}, {"role": "user", "content": user_prompt}],
-                            "temperature": 0.2,
-                            "max_tokens": 200,
+                            "temperature": 0.0,
+                            "max_tokens": 150,
                         }
                         response = requests.post(url, headers=headers, json=payload, timeout=15)
                         response.raise_for_status()
@@ -391,20 +399,30 @@ else:
                     top_matches = search_raw_text_chunks(user_query, rag_chunks, top_k=3)
                     context_str = "\n\n".join([f"Source ({m[2]}): {m[1]}" for m in top_matches])
 
-                    system_prompt = "You are an accountability sleep coach helping with bedtime procrastination. Provide direct, persuasive advice in 2 to 3 sentences contrasting remaining sleep time against their goal."
-                    user_prompt = f"""USER METRICS:
+                    system_prompt = (
+                        "You are an accountability sleep coach helping with bedtime procrastination. "
+                        "CRITICAL: Output ONLY the final advice in 2 to 3 sentences. "
+                        "DO NOT include any thinking process, reasoning steps, or meta-talk."
+                    )
+                    user_prompt = f"""STRICT RULE: Write 1 to 3 sentences maximum. Do not output any thinking steps.
+
+USER METRICS:
 - Current Time: {now_display}
 - Target Wake Time: {target_display}
 - Available Sleep: {available_sleep:.1f} hours
 - Sleep Goal: {aim_sleep:.1f} hours
 
-SCIENTIFIC CONTEXT:
-{context_str}
-
 USER DELAY REASON:
+<delay_reason>
 {user_query}
+</delay_reason>
 
-Provide a supportive, concise answer balancing their delay reason against their available sleep in maximum 3 sentences."""
+SCIENTIFIC CONTEXT:
+<context>
+{context_str}
+</context>
+
+Provide a supportive, concise answer balancing their delay reason against their available sleep."""
 
                     try:
                         url = "https://openrouter.ai/api/v1/chat/completions"
@@ -412,8 +430,8 @@ Provide a supportive, concise answer balancing their delay reason against their 
                         payload = {
                             "model": "nvidia/nemotron-3.5-lightning:free",
                             "messages": [{"role": "system", "content": system_prompt}, {"role": "user", "content": user_prompt}],
-                            "temperature": 0.2,
-                            "max_tokens": 200,
+                            "temperature": 0.0,
+                            "max_tokens": 150,
                         }
                         response = requests.post(url, headers=headers, json=payload, timeout=15)
                         response.raise_for_status()
