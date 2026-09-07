@@ -334,21 +334,52 @@ def render_time_picker(
 
 
 def clean_and_trim_response(raw_text: str) -> str:
-    """Robust extraction logic that prevents output loss."""
+    """Robust extraction logic that strips thinking blocks, meta-analysis, and limits to 3 sentences."""
     if not raw_text:
         return "No response generated. Please try again."
 
-    # Step 1: Strip out potential thought/reasoning blocks
+    # Step 1: Strip out potential thought, reasoning, or scratchpad tags
     cleaned = re.sub(
-        r"<(think|reasoning|thought)>.*?</\1>", "", raw_text, flags=re.DOTALL | re.IGNORECASE
+        r"<(think|reasoning|thought|scratchpad)>.*?</\1>", "", raw_text, flags=re.DOTALL | re.IGNORECASE
     ).strip()
+    cleaned = re.sub(r"<(think|reasoning|thought|scratchpad)>.*", "", cleaned, flags=re.DOTALL | re.IGNORECASE).strip()
 
-    # Step 2: Extract content from <advice> tags if available
+    # Step 2: Strip common transition markers if model leaks meta-analysis
+    markers = [
+        "Here is the advice:",
+        "Advice:",
+        "AI Coach Guidance:",
+        "Response:",
+        "Draft 3:",
+        "Final Answer:",
+    ]
+    for marker in markers:
+        if marker in cleaned:
+            parts = cleaned.split(marker)
+            cleaned = parts[-1].strip()
+
+    # Fallback line filter for rogue meta-talk/drafting
+    lines = cleaned.split("\n")
+    filtered_lines = []
+    skip_line = False
+    for line in lines:
+        lower_line = line.lower()
+        if any(term in lower_line for term in ["thinking process", "analyze the request", "deconstruct the problem", "draft 1:", "draft 2:"]):
+            skip_line = True
+            continue
+        if skip_line and line.strip() == "":
+            skip_line = False
+            continue
+        if not skip_line:
+            filtered_lines.append(line)
+    
+    cleaned = "\n".join(filtered_lines).strip()
+
+    # Step 3: Extract content from <advice> tags if available
     match = re.search(r"<advice>(.*?)</advice>", cleaned, re.DOTALL | re.IGNORECASE)
     if match and match.group(1).strip():
         cleaned = match.group(1).strip()
     else:
-        # Step 3: Remove opening/closing tags if incomplete or trailing
         cleaned = re.sub(r"</?advice>", "", cleaned, flags=re.IGNORECASE).strip()
 
     # Step 4: Remove standard LLM preamble phrases
@@ -358,9 +389,15 @@ def clean_and_trim_response(raw_text: str) -> str:
         r"^Here is the advice:\s*",
         r"^Advice:\s*",
         r"^AI Coach Guidance:\s*",
+        r"^Thinking Process:.*?\n",
     ]
     for pattern in preambles:
         cleaned = re.sub(pattern, "", cleaned, flags=re.IGNORECASE).strip()
+
+    # Step 5: Enforce a strict 3-sentence maximum limit programmatically
+    sentences = re.split(r'(?<=[.!?])\s+', cleaned)
+    if len(sentences) > 3:
+        cleaned = " ".join(sentences[:3])
 
     return cleaned if cleaned else raw_text.strip()
 
@@ -461,7 +498,7 @@ if "Mode 1" in mode:
         "SUBMIT RESPONSE to Generate Personalized Feedback", key="submit_mode_1"
     ):
         if not user_query.strip():
-            st.error("⚠️ **Input Required:**  Please type a question or reflection in the box above before submitting.")
+            st.error("⚠️ **Input Required:** Please type a question or reflection in the box above before submitting.")
         else:
             t_bed = datetime(2026, 1, 1, bed_hr, bed_min)
             t_wake = datetime(2026, 1, 1, wake_hr, wake_min)
@@ -489,6 +526,7 @@ if "Mode 1" in mode:
                     system_prompt = (
                         "You are an evidence-based sleep coach. Provide clear, empathetic, direct actionable "
                         "guidance in 2 to 3 sentences based on the user's data and context. "
+                        "IMPORTANT: Always wrap output strictly inside <advice></advice> tags."
                     )
 
                     user_prompt = f"""
@@ -520,8 +558,9 @@ USER REFLECTION:
                                 {"role": "system", "content": system_prompt},
                                 {"role": "user", "content": user_prompt},
                             ],
-                            "temperature": 0.2,
-                            "max_tokens": 400,
+                            "temperature": 0.0,
+                            "max_tokens": 120,
+                            "stop": ["Here's a thinking process", "Analyze the Request", "Draft 1:"],
                         }
 
                         response = requests.post(
@@ -650,8 +689,6 @@ else:
                     )
 
                     user_prompt = f"""
-
-
 CRITICAL INSTRUCTION: Output ONLY your final advice in 1 to 3 sentences maximum. Do NOT include any thinking process, reasoning steps, or intros like "Here's a thinking process:".
 
 The current time is {now_display}, and the user aims to wake up at {target_display} (available sleep: {available_sleep:.1f} hrs vs target sleep: {aim_sleep} hrs).
@@ -685,8 +722,9 @@ USER DELAY REASON:
                                 {"role": "system", "content": system_prompt},
                                 {"role": "user", "content": user_prompt},
                             ],
-                            "temperature": 0.2,
-                            "max_tokens": 400,
+                            "temperature": 0.0,
+                            "max_tokens": 120,
+                            "stop": ["Here's a thinking process", "Analyze the Request", "Draft 1:"],
                         }
 
                         response = requests.post(
